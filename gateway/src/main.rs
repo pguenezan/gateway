@@ -3,11 +3,12 @@ use std::net::SocketAddr;
 use std::process::exit;
 
 use hyper::client::HttpConnector;
+use hyper::header::HeaderValue;
 use hyper::service::{make_service_fn, service_fn};
-use hyper::{Body, Client, Request, Response, Server, StatusCode};
+use hyper::{Body, Client, HeaderMap, Request, Response, Server, StatusCode};
 
 mod auth;
-use auth::get_claims;
+use auth::{get_claims, Claims};
 
 use macros::gateway_config;
 
@@ -27,8 +28,14 @@ macro_rules! get_response {
     };
 }
 
+fn inject_headers(headers: &mut HeaderMap<HeaderValue>, claims: &Claims) {
+    if let Ok(value) = claims.sub.parse() {
+        headers.insert("X-Forwarded-User", value);
+    };
+}
+
 async fn response(mut req: Request<Body>, client: Client<HttpConnector>) -> Result<Response<Body>> {
-    let _claims = match get_claims(req.headers()).await {
+    let claims = match get_claims(req.headers()).await {
         Some(claims) => claims,
         None => return get_response!(StatusCode::FORBIDDEN, FORBIDDEN),
     };

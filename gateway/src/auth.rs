@@ -6,10 +6,10 @@ use serde::Deserialize;
 
 use lazy_static::lazy_static;
 
-#[allow(dead_code)] // TODO remove
+#[allow(dead_code)] // some fields are only used by the validator
 #[derive(Deserialize)]
 pub struct Claims {
-    sub: String,
+    pub sub: String,
     iss: String,
     exp: usize,
 }

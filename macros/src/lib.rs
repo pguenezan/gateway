@@ -31,17 +31,15 @@ fn check_field(name: &str, value: &str) -> Result<String, String> {
             if value.len() < 2 {
                 return Err(format!("app_name: {} must be at least 2 characters", value));
             }
-            if value.chars().next().unwrap() != '/' {
+            if !value.starts_with('/') {
                 return Err(format!("app_name: {} should start with `/`", value));
             }
             Ok(value.to_string())
-        },
-        "host" => {
-            match Url::parse(&format!("http://{}", value)) {
-                Err(_) => Err(format!("host: {} isn't valid", value)),
-                Ok(_) => Ok(value.to_string()),
-            }
         }
+        "host" => match Url::parse(&format!("http://{}", value)) {
+            Err(_) => Err(format!("host: {} isn't valid", value)),
+            Ok(_) => Ok(value.to_string()),
+        },
         name => Err(format!("unknown field name: {}", name)),
     }
 }
@@ -81,7 +79,7 @@ pub fn gateway_config(input: proc_macro::TokenStream) -> proc_macro::TokenStream
                         Ok(value) => content.insert(name, value),
                         Err(msg) => return to_compile_error!(field.expr.span(), msg),
                     };
-                },
+                }
                 _ => return to_compile_error!(field.span(), "field should be named"),
             }
         }
@@ -102,6 +100,7 @@ pub fn gateway_config(input: proc_macro::TokenStream) -> proc_macro::TokenStream
                     Ok(uri) => *req.uri_mut() = uri,
                     Err(_) => return get_response!(StatusCode::NOT_FOUND, NOTFOUND),
                 };
+                inject_headers(req.headers_mut(), &claims);
                 match client.request(req).await {
                     Ok(response) => Ok(response),
                     Err(_) => get_response!(StatusCode::BAD_GATEWAY, BADGATEWAY),
