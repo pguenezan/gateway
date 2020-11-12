@@ -3,8 +3,15 @@ use std::collections::HashMap;
 use proc_macro2::TokenStream;
 use quote::{quote, ToTokens};
 use syn::{parse_macro_input, spanned::Spanned, Expr, ExprLit, Lit, Member};
+use url::Url;
 
-fn expr_to_str(expr: Expr) -> String {
+macro_rules! to_compile_error {
+    ($span:expr, $msg:expr) => {
+        proc_macro::TokenStream::from(syn::Error::new($span, $msg).to_compile_error())
+    };
+}
+
+fn expr_to_str(expr: &Expr) -> String {
     match expr {
         Expr::Lit(ExprLit {
             lit: Lit::Str(string),
@@ -18,10 +25,25 @@ fn expr_to_str(expr: Expr) -> String {
     }
 }
 
-macro_rules! to_compile_error {
-    ($span:expr, $msg:expr) => {
-        proc_macro::TokenStream::from(syn::Error::new($span, $msg).to_compile_error())
-    };
+fn check_field(name: &str, value: &str) -> Result<String, String> {
+    match name {
+        "app_name" => {
+            if value.len() < 2 {
+                return Err(format!("app_name: {} must be at least 2 characters", value));
+            }
+            if value.chars().next().unwrap() != '/' {
+                return Err(format!("app_name: {} should start with `/`", value));
+            }
+            Ok(value.to_string())
+        },
+        "host" => {
+            match Url::parse(&format!("http://{}", value)) {
+                Err(_) => Err(format!("host: {} isn't valid", value)),
+                Ok(_) => Ok(value.to_string()),
+            }
+        }
+        name => Err(format!("unknown field name: {}", name)),
+    }
 }
 
 #[proc_macro]
@@ -51,13 +73,15 @@ pub fn gateway_config(input: proc_macro::TokenStream) -> proc_macro::TokenStream
         for field in structure.fields {
             match field.member {
                 Member::Named(ident) => {
-                    content.insert(ident.to_string(), expr_to_str(field.expr));
-                }
+                    let name = ident.to_string();
+                    match check_field(&name, &expr_to_str(&field.expr)) {
+                        Ok(value) => content.insert(name, value),
+                        Err(msg) => return to_compile_error!(field.expr.span(), msg),
+                    };
+                },
                 _ => return to_compile_error!(field.span(), "field should be named"),
             }
         }
-
-        // TODO check content
 
         let app_name = content.get("app_name");
         let host = content.get("host");
