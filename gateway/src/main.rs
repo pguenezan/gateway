@@ -59,8 +59,17 @@ async fn response(mut req: Request<Body>, client: Client<HttpConnector>) -> Resu
     };
     let app = &path[..slash_index];
 
-    println!("uri = {}", req.uri());
-    println!("app = {}", app);
+    let perm = format!(
+        "{}::{}::{}",
+        &app[1..],
+        req.method(),
+        &req.uri().path()[app.len()..]
+    );
+    if !claims.roles.contains(&perm) {
+        return get_response!(StatusCode::FORBIDDEN, FORBIDDEN);
+    }
+
+    println!("{} => {}", claims.sub, perm);
 
     let forwarded_path = match req
         .uri()

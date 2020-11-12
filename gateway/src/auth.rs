@@ -18,6 +18,7 @@ pub struct Claims {
     pub given_name: String,
     pub family_name: String,
     pub email: String,
+    pub roles: Vec<String>,
 }
 
 fn get_audience() -> Option<HashSet<String>> {
