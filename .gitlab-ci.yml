@@ -1,5 +1,12 @@
 stages:
+  - test
   - build
+
+test:
+  image: rustlang/rust:nightly
+  stage: test
+  script:
+    - cargo test
 
 docker_build:
   image: docker:latest
