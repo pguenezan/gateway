@@ -1,23 +1,9 @@
 stages:
   - build
-  - package
-
-image: rustlang/rust:nightly
-
-bin_build:
-  stage: build
-  artifacts:
-    untracked: true
-  script:
-    - echo ${PUBLIC_KEY} > gateway/src/public_key.pem
-    - echo ${CONFIG_FILE} > gateway/src/config.rs
-    - cargo build --release
 
 docker_build:
   image: docker:latest
-  stage: package
-  dependencies: 
-    - bin_build
+  stage: build
   services:
     - docker:dind
   before_script:
