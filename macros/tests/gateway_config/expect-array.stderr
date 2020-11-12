@@ -1,0 +1,5 @@
+error: config should be an array
+ --> $DIR/expect-array.rs:5:9
+  |
+5 |         42
+  |         ^^
