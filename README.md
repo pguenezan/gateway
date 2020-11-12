@@ -6,10 +6,11 @@ public key for the JWT token in `gateway/src/public_key.pem`.
 
 ## Environment
 
-| Variable    | Description                                 |
-|-------------|---------------------------------------------|
-| `BIND_TO`   | *Mandatory* the `SocketAddr` to listen      |
-| `JWT_ISSER` | Check if the JWT token has the right issuer |
+| Variable       | Description                                   |
+|----------------|-----------------------------------------------|
+| `BIND_TO`      | *Mandatory* the `SocketAddr` to listen        |
+| `JWT_ISSER`    | Check if the JWT token has the right issuer   |
+| `JWT_AUDIENCE` | Check if the JWT token has the right audience |
 
 ## Optional features
 

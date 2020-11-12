@@ -1,5 +1,7 @@
-use hyper::header::{HeaderMap, HeaderValue};
+use std::collections::HashSet;
 use std::env;
+
+use hyper::header::{HeaderMap, HeaderValue};
 
 use jsonwebtoken::{decode, Algorithm, DecodingKey, Validation};
 use serde::Deserialize;
@@ -18,6 +20,17 @@ pub struct Claims {
     pub email: String,
 }
 
+fn get_audience() -> Option<HashSet<String>> {
+    match env::var("JWT_AUDIENCE") {
+        Ok(aud) => {
+            let mut auds = HashSet::new();
+            auds.insert(aud);
+            Some(auds)
+        }
+        Err(_) => None,
+    }
+}
+
 lazy_static! {
     static ref VALIDATION: Validation = Validation {
         leeway: 0,
@@ -25,7 +38,7 @@ lazy_static! {
         algorithms: vec![Algorithm::RS256],
         validate_nbf: false,
         iss: env::var("JWT_ISSER").ok(),
-        aud: None,
+        aud: get_audience(),
         sub: None,
     };
     static ref PUBLIC_KEY: DecodingKey<'static> =
