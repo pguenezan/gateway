@@ -12,6 +12,10 @@ pub struct Claims {
     pub sub: String,
     iss: String,
     exp: usize,
+    pub preferred_username: String,
+    pub given_name: String,
+    pub family_name: String,
+    pub email: String,
 }
 
 lazy_static! {

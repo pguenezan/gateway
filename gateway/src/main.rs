@@ -29,8 +29,20 @@ macro_rules! get_response {
 }
 
 fn inject_headers(headers: &mut HeaderMap<HeaderValue>, claims: &Claims) {
+    if cfg!(feature = "remove_authorization_header") {
+        headers.remove("Authorization");
+    }
     if let Ok(value) = claims.sub.parse() {
         headers.insert("X-Forwarded-User", value);
+    };
+    if let Ok(value) = claims.preferred_username.parse() {
+        headers.insert("X-Forwarded-User-Username", value);
+    };
+    if let Ok(value) = claims.given_name.parse() {
+        headers.insert("X-Forwarded-User-First-Name", value);
+    };
+    if let Ok(value) = claims.family_name.parse() {
+        headers.insert("X-Forwarded-User-Last-Name", value);
     };
 }
 
