@@ -74,6 +74,9 @@ pub fn gateway_config(input: proc_macro::TokenStream) -> proc_macro::TokenStream
             match field.member {
                 Member::Named(ident) => {
                     let name = ident.to_string();
+                    if content.contains_key(&name) {
+                        return to_compile_error!(ident.span(), "is already defined");
+                    }
                     match check_field(&name, &expr_to_str(&field.expr)) {
                         Ok(value) => content.insert(name, value),
                         Err(msg) => return to_compile_error!(field.expr.span(), msg),
@@ -83,8 +86,14 @@ pub fn gateway_config(input: proc_macro::TokenStream) -> proc_macro::TokenStream
             }
         }
 
-        let app_name = content.get("app_name");
-        let host = content.get("host");
+        let app_name = match content.get("app_name") {
+            Some(app_name) => app_name,
+            None => return to_compile_error!(structure.path.span(), "missing field `app_name`"),
+        };
+        let host = match content.get("host") {
+            Some(host) => host,
+            None => return to_compile_error!(structure.path.span(), "missing field `host`"),
+        };
 
         cases.extend(quote! {
             #app_name => {
