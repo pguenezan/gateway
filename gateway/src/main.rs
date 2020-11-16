@@ -3,9 +3,16 @@ use std::net::SocketAddr;
 use std::process::exit;
 
 use hyper::client::HttpConnector;
-use hyper::header::HeaderValue;
+use hyper::header::{HeaderValue, CONTENT_TYPE};
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Client, HeaderMap, Request, Response, Server, StatusCode};
+
+use lazy_static::lazy_static;
+
+use prometheus::{
+    opts, register_counter_vec, register_histogram_vec, CounterVec, Encoder, HistogramVec,
+    TextEncoder,
+};
 
 mod auth;
 use auth::{get_claims, Claims};
@@ -28,6 +35,22 @@ macro_rules! get_response {
     };
 }
 
+const LABEL_NAMES: [&str; 3] = ["app", "path", "method"];
+
+lazy_static! {
+    static ref HTTP_COUNTER: CounterVec = register_counter_vec!(
+        opts!("http_requests_total", "Number of HTTP requests made."),
+        &LABEL_NAMES
+    )
+    .unwrap();
+    static ref HTTP_REQ_HISTOGRAM: HistogramVec = register_histogram_vec!(
+        "http_request_duration_seconds",
+        "The HTTP request latencies in seconds.",
+        &LABEL_NAMES
+    )
+    .unwrap();
+}
+
 fn inject_headers(headers: &mut HeaderMap<HeaderValue>, claims: &Claims) {
     if cfg!(feature = "remove_authorization_header") {
         headers.remove("Authorization");
@@ -46,11 +69,25 @@ fn inject_headers(headers: &mut HeaderMap<HeaderValue>, claims: &Claims) {
     };
 }
 
+async fn metrics() -> Result<Response<Body>> {
+    let encoder = TextEncoder::new();
+    let metric_families = prometheus::gather();
+    let mut buffer = vec![];
+    encoder.encode(&metric_families, &mut buffer).unwrap();
+
+    let response = Response::builder()
+        .status(200)
+        .header(CONTENT_TYPE, encoder.format_type())
+        .body(Body::from(buffer))
+        .unwrap();
+
+    Ok(response)
+}
+
 async fn response(mut req: Request<Body>, client: Client<HttpConnector>) -> Result<Response<Body>> {
-    let claims = match get_claims(req.headers()).await {
-        Some(claims) => claims,
-        None => return get_response!(StatusCode::FORBIDDEN, FORBIDDEN),
-    };
+    if req.uri().path() == "/metrics" {
+        return metrics().await;
+    }
 
     let path = &req.uri().path();
     let slash_index = match path[1..].find('/') {
@@ -59,24 +96,30 @@ async fn response(mut req: Request<Body>, client: Client<HttpConnector>) -> Resu
     };
     let app = &path[..slash_index];
 
-    let perm = format!(
-        "{}::{}::{}",
-        &app[1..],
-        req.method(),
-        &req.uri().path()[app.len()..]
-    );
+    let forwarded_path = &req.uri().path()[app.len()..];
+    let method_str: &str = &req.method().to_string();
+    let perm = format!("{}::{}::{}", &app[1..], method_str, forwarded_path);
+
+    let labels = [&app[1..], forwarded_path, method_str];
+    HTTP_COUNTER.with_label_values(&labels).inc();
+    let timer = HTTP_REQ_HISTOGRAM.with_label_values(&labels).start_timer();
+
+    let claims = match get_claims(req.headers()).await {
+        Some(claims) => claims,
+        None => return get_response!(StatusCode::FORBIDDEN, FORBIDDEN),
+    };
     if !claims.roles.contains(&perm) {
         return get_response!(StatusCode::FORBIDDEN, FORBIDDEN);
     }
 
-    println!("{} => {}", claims.sub, perm);
+    println!("{} ({}) => {}", claims.preferred_username, claims.sub, perm);
 
-    let forwarded_path = match req
+    let forwarded_uri = match req
         .uri()
         .path_and_query()
         .map(|x| &x.as_str()[app.len() + 1..])
     {
-        Some(forwarded_path) => forwarded_path,
+        Some(forwarded_uri) => forwarded_uri,
         None => return get_response!(StatusCode::NOT_FOUND, NOTFOUND),
     };
 

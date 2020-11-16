@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 use std::env;
 
-use hyper::header::{HeaderMap, HeaderValue};
+use hyper::header::{HeaderMap, HeaderValue, AUTHORIZATION};
 
 use jsonwebtoken::{decode, Algorithm, DecodingKey, Validation};
 use serde::Deserialize;
@@ -46,11 +46,10 @@ lazy_static! {
         DecodingKey::from_rsa_pem(include_bytes!("public_key.pem")).unwrap();
 }
 
-const AUTH_HEADER_NAME: &str = "authorization";
 const AUTH_SHIFT: usize = "Bearer ".len();
 
 pub async fn get_claims(headers: &HeaderMap<HeaderValue>) -> Option<Claims> {
-    let authorization = headers.get(AUTH_HEADER_NAME)?.to_str().ok()?;
+    let authorization = headers.get(AUTHORIZATION)?.to_str().ok()?;
     let token = decode::<Claims>(&authorization[AUTH_SHIFT..], &PUBLIC_KEY, &VALIDATION).ok()?;
     return Some(token.claims);
 }

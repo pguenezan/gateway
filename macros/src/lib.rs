@@ -95,14 +95,17 @@ pub fn gateway_config(input: proc_macro::TokenStream) -> proc_macro::TokenStream
 
         cases.extend(quote! {
             #app_name => {
-                let uri_string = format!(concat!("http://", #host, "/{}"), forwarded_path);
+                let uri_string = format!(concat!("http://", #host, "/{}"), forwarded_uri);
                 match uri_string.parse() {
                     Ok(uri) => *req.uri_mut() = uri,
                     Err(_) => return get_response!(StatusCode::NOT_FOUND, NOTFOUND),
                 };
                 inject_headers(req.headers_mut(), &claims);
                 match client.request(req).await {
-                    Ok(response) => Ok(response),
+                    Ok(response) => {
+                        timer.observe_duration();
+                        Ok(response)
+                    },
                     Err(_) => get_response!(StatusCode::BAD_GATEWAY, BADGATEWAY),
                 }
             },
