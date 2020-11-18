@@ -119,19 +119,14 @@ fn handle_prefixed(paths: &HashSet<String>, prefix_len: usize) -> TokenStream {
     let (cases, partial) = generate_case_path_tree(&reaming_path);
 
     quote! {
-        println!("inside {}", #prefix_len);
         match &forwarded_path[#prefix_len..] {
             #simple_cases
             _ => (),
         };
         match &forwarded_path[#prefix_len..].find('/') {
-            Some(0) => {
-                println!("zero ?");
-                return get_response!(StatusCode::NOT_FOUND, NOTFOUND)
-            }
+            Some(0) => return get_response!(StatusCode::NOT_FOUND, NOTFOUND),
             Some(slash_index) => {
                 forwarded_path = &forwarded_path[#prefix_len + slash_index..];
-                println!("fpath = {}, slash_index = {}", forwarded_path, slash_index);
                 match forwarded_path {
                     #cases
                     _ => (),
@@ -139,10 +134,7 @@ fn handle_prefixed(paths: &HashSet<String>, prefix_len: usize) -> TokenStream {
                 #partial
                 return get_response!(StatusCode::NOT_FOUND, NOTFOUND)
             },
-            None => {
-                println!("no slash ?");
-                return get_response!(StatusCode::NOT_FOUND, NOTFOUND)
-            },
+            None => return get_response!(StatusCode::NOT_FOUND, NOTFOUND),
         }
     }
 }
@@ -172,7 +164,6 @@ fn generate_case_path_tree(paths: &HashSet<String>) -> (TokenStream, TokenStream
             );
             let mut partial = quote! {
                 if forwarded_path.starts_with(#prefix) {
-                    println!("inside: {}", #prefix);
                     #prefixed_paths
                 }
             };
@@ -204,7 +195,6 @@ fn generate_forward_strict(api: &Api) -> TokenStream {
     let (cases, partial) = generate_case_path_tree(paths);
     quote! {
         #app_name => {
-            println!("inside app: {}", #app_name);
             match forwarded_path {
                 #cases
                 _ => (),
