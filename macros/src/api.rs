@@ -17,6 +17,7 @@ macro_rules! to_compile_error {
     };
 }
 
+#[derive(PartialEq, Debug)]
 pub enum ApiMode {
     ForwardAll,
     ForwardStrict,
@@ -33,6 +34,7 @@ impl FromStr for ApiMode {
     }
 }
 
+#[derive(Debug)]
 pub struct Api {
     pub app_name: String,
     pub host: String,

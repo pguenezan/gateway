@@ -16,6 +16,7 @@ macro_rules! to_compile_error {
     };
 }
 
+#[derive(Debug)]
 pub struct Endpoint {
     pub path: String,
     pub method: String,
@@ -44,6 +45,9 @@ fn check_field(name: &str, value: &str) -> Result<String, String> {
             }
             if !value.starts_with('/') {
                 return Err(format!("path: {} should start with `/`", value));
+            }
+            if !value.ends_with('/') {
+                return Err(format!("path: {} should end with `/`", value));
             }
             Ok(value.to_string())
         }
