@@ -5,6 +5,7 @@ use hyper::Method;
 use proc_macro2::TokenStream;
 use quote::ToTokens;
 use syn::{spanned::Spanned, Expr, ExprLit, Lit, Member};
+use regex::Regex;
 
 use crate::util::to_array;
 
@@ -37,6 +38,23 @@ fn expr_to_str(expr: &Expr) -> String {
     }
 }
 
+fn check_for_params(path: &str) -> Result<(), String> {
+    let match_param = Regex::new("\\{[^/]+\\}").unwrap();
+    let mut mut_path: String = path.to_string();
+    while match_param.is_match(&mut_path) {
+        let mut param = match_param.find(&mut_path).unwrap().as_str();
+        param = &param[1..param.len() - 2];
+        if param.contains("{") || param.contains("}") {
+            return Err(format!("param: `{}` contains `{{` or `}}` in path `{}`", param, path));
+        }
+        mut_path = match_param.replace(&mut_path, "").to_string();
+    }
+    if mut_path.contains("{") || mut_path.contains("}") {
+        return Err(format!("path: `{}` contains/is missing `{{` or `}}`", path));
+    }
+    Ok(())
+}
+
 fn check_field(name: &str, value: &str) -> Result<String, String> {
     match name {
         "path" => {
@@ -49,6 +67,7 @@ fn check_field(name: &str, value: &str) -> Result<String, String> {
             if !value.ends_with('/') {
                 return Err(format!("path: {} should end with `/`", value));
             }
+            check_for_params(value)?;
             Ok(value.to_string())
         }
         "method" => match Method::from_str(value) {
