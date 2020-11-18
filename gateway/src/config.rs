@@ -19,34 +19,34 @@ gateway_config! {
                 //         "/misc/this_shoud_be_post",
                 //     ],
                 // },
-                // Endpoint {
-                //     path: "/this_shoud_be_post/",
-                //     method: "GET",
-                // },
-                // Endpoint {
-                //     path: "/report.{format}/",
-                //     method: "GET",
-                // },
-                // Endpoint {
-                //     path: "/report/",
-                //     method: "GET",
-                // },
-                // Endpoint {
-                //     path: "/report.{format}/view/",
-                //     method: "GET",
-                // },
-                // Endpoint {
-                //     path: "/report.{format}/edit/{user}/mail/",
-                //     method: "GET",
-                // },
-                // Endpoint {
-                //     path: "/report.{format}/edit/{user}/name/",
-                //     method: "GET",
-                // },
-                // Endpoint {
-                //     path: "/report./",
-                //     method: "GET",
-                // },
+                Endpoint {
+                    path: "/this_shoud_be_post/",
+                    method: "GET",
+                },
+                Endpoint {
+                    path: "/report.{format}/",
+                    method: "GET",
+                },
+                Endpoint {
+                    path: "/report/",
+                    method: "GET",
+                },
+                Endpoint {
+                    path: "/report.{format}/view/",
+                    method: "GET",
+                },
+                Endpoint {
+                    path: "/report.{format}/edit/{user}/mail/",
+                    method: "GET",
+                },
+                Endpoint {
+                    path: "/report.{format}/edit/{user}/name/",
+                    method: "GET",
+                },
+                Endpoint {
+                    path: "/report./",
+                    method: "GET",
+                },
                 Endpoint {
                     path: "/user/",
                     method: "GET",
@@ -59,10 +59,10 @@ gateway_config! {
                     path: "/user/{id}/",
                     method: "GET",
                 },
-                // Endpoint {
-                //     path: "/alone/{i_am}/",
-                //     method: "GET",
-                // },
+                Endpoint {
+                    path: "/alone/{i_am}/",
+                    method: "GET",
+                },
             ],
         },
     ]

@@ -96,7 +96,7 @@ async fn response(mut req: Request<Body>, client: Client<HttpConnector>) -> Resu
     };
     let app = &path[..slash_index];
 
-    let forwarded_path = &req.uri().path()[app.len()..];
+    let mut forwarded_path = &req.uri().path()[app.len()..];
     let method_str: &str = &req.method().to_string();
     let perm = format!("{}::{}::{}", &app[1..], method_str, forwarded_path);
 
@@ -109,7 +109,9 @@ async fn response(mut req: Request<Body>, client: Client<HttpConnector>) -> Resu
         None => return get_response!(StatusCode::FORBIDDEN, FORBIDDEN),
     };
     if !claims.roles.contains(&perm) {
-        return get_response!(StatusCode::FORBIDDEN, FORBIDDEN);
+        // TODO remove
+        println!("{} hasn't {}", claims.preferred_username, perm);
+        //return get_response!(StatusCode::FORBIDDEN, FORBIDDEN);
     }
 
     println!("{} ({}) => {}", claims.preferred_username, claims.sub, perm);

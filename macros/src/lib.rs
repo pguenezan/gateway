@@ -22,9 +22,9 @@ fn get_forward_request(host: &str) -> TokenStream {
         match client.request(req).await {
             Ok(response) => {
                 timer.observe_duration();
-                Ok(response)
+                return Ok(response)
             },
-            Err(_) => get_response!(StatusCode::BAD_GATEWAY, BADGATEWAY),
+            Err(_) => return get_response!(StatusCode::BAD_GATEWAY, BADGATEWAY),
         }
     }
 }
@@ -116,26 +116,38 @@ fn handle_prefixed(paths: &HashSet<String>, prefix_len: usize) -> TokenStream {
         }
     }
 
-    let cases = generate_case_path_tree(&reaming_path);
+    let (cases, partial) = generate_case_path_tree(&reaming_path);
 
     quote! {
+        println!("inside {}", #prefix_len);
         match &forwarded_path[#prefix_len..] {
             #simple_cases
+            _ => (),
         };
         match &forwarded_path[#prefix_len..].find('/') {
+            Some(0) => {
+                println!("zero ?");
+                return get_response!(StatusCode::NOT_FOUND, NOTFOUND)
+            }
             Some(slash_index) => {
                 forwarded_path = &forwarded_path[#prefix_len + slash_index..];
+                println!("fpath = {}, slash_index = {}", forwarded_path, slash_index);
                 match forwarded_path {
                     #cases
-                    _ => get_response!(StatusCode::NOT_FOUND, NOTFOUND),
-                }
+                    _ => (),
+                };
+                #partial
+                return get_response!(StatusCode::NOT_FOUND, NOTFOUND)
             },
-            None => get_response!(StatusCode::NOT_FOUND, NOTFOUND),
+            None => {
+                println!("no slash ?");
+                return get_response!(StatusCode::NOT_FOUND, NOTFOUND)
+            },
         }
     }
 }
 
-fn generate_case_path_tree(paths: &HashSet<String>) -> TokenStream {
+fn generate_case_path_tree(paths: &HashSet<String>) -> (TokenStream, TokenStream) {
     let forward_request = get_forward_request("TODO_HOST:80");
     match filter_common_paths(paths) {
         None => {
@@ -147,23 +159,25 @@ fn generate_case_path_tree(paths: &HashSet<String>) -> TokenStream {
                     },
                 });
             }
-            tokens
+            (tokens, TokenStream::new())
         }
         Some((prefix, common_paths)) => {
             let prefixed_paths =
                 handle_prefixed(&filter_prefix(&prefix, &common_paths), prefix.len());
-            let recursion = generate_case_path_tree(
+            let (recursion_cases, recursion_partial) = generate_case_path_tree(
                 &paths
                     .difference(&common_paths)
                     .map(|s| s.to_string())
                     .collect(),
             );
-            quote! {
-                #prefix => {
+            let mut partial = quote! {
+                if forwarded_path.starts_with(#prefix) {
+                    println!("inside: {}", #prefix);
                     #prefixed_paths
-                },
-                #recursion
-            }
+                }
+            };
+            partial.extend(recursion_partial);
+            (recursion_cases, partial)
         }
     }
 }
@@ -187,12 +201,16 @@ fn generate_forward_strict(api: &Api) -> TokenStream {
         .iter()
         .map(|e| e.path.clone())
         .collect();
-    let cases = generate_case_path_tree(paths);
+    let (cases, partial) = generate_case_path_tree(paths);
     quote! {
         #app_name => {
+            println!("inside app: {}", #app_name);
             match forwarded_path {
                 #cases
-            }
+                _ => (),
+            };
+            #partial
+            return get_response!(StatusCode::NOT_FOUND, NOTFOUND)
         },
     }
 }
@@ -224,7 +242,7 @@ pub fn gateway_config(input: proc_macro::TokenStream) -> proc_macro::TokenStream
     let expanded = quote! {
         match app {
             #cases
-            _ => get_response!(StatusCode::NOT_FOUND, NOTFOUND),
+            _ => return get_response!(StatusCode::NOT_FOUND, NOTFOUND),
         }
     };
 
