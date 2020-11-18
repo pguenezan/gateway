@@ -4,8 +4,8 @@ use std::str::FromStr;
 use hyper::Method;
 use proc_macro2::TokenStream;
 use quote::ToTokens;
-use syn::{spanned::Spanned, Expr, ExprLit, Lit, Member};
 use regex::Regex;
+use syn::{spanned::Spanned, Expr, ExprLit, Lit, Member};
 
 use crate::util::to_array;
 
@@ -44,12 +44,15 @@ fn check_for_params(path: &str) -> Result<(), String> {
     while match_param.is_match(&mut_path) {
         let mut param = match_param.find(&mut_path).unwrap().as_str();
         param = &param[1..param.len() - 2];
-        if param.contains("{") || param.contains("}") {
-            return Err(format!("param: `{}` contains `{{` or `}}` in path `{}`", param, path));
+        if param.contains('{') || param.contains('}') {
+            return Err(format!(
+                "param: `{}` contains `{{` or `}}` in path `{}`",
+                param, path
+            ));
         }
         mut_path = match_param.replace(&mut_path, "").to_string();
     }
-    if mut_path.contains("{") || mut_path.contains("}") {
+    if mut_path.contains('{') || mut_path.contains('}') {
         return Err(format!("path: `{}` contains/is missing `{{` or `}}`", path));
     }
     Ok(())

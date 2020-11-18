@@ -83,22 +83,22 @@ fn filter_common_paths(paths: &HashSet<String>) -> Option<(String, HashSet<Strin
             return Some((prefix.to_string(), common_paths));
         }
     }
-    return None;
+    None
 }
 
-fn filter_prefix(prefix: &String, paths: &HashSet<String>) -> HashSet<String> {
+fn filter_prefix(prefix: &str, paths: &HashSet<String>) -> HashSet<String> {
     let mut filtered = HashSet::new();
     for path in paths {
         let suffix = &path[prefix.len()..];
         filtered.insert(suffix.to_string());
     }
-    return filtered;
+    filtered
 }
 
-fn handle_prefixed(paths: &HashSet<String>, prefix_len: usize) -> TokenStream {
+fn handle_prefixed(paths: &HashSet<String>, prefix_len: usize, host: &str) -> TokenStream {
     let has_capture_first = Regex::new("^\\{[^/]*\\}").unwrap();
     let mut simple_cases = TokenStream::new();
-    let forward_request = get_forward_request("TODO_HOST:80");
+    let forward_request = get_forward_request(host);
     for path in paths {
         if !has_capture_first.is_match(&path) {
             simple_cases.extend(quote! {
@@ -116,7 +116,7 @@ fn handle_prefixed(paths: &HashSet<String>, prefix_len: usize) -> TokenStream {
         }
     }
 
-    let (cases, partial) = generate_case_path_tree(&reaming_path);
+    let (cases, partial) = generate_case_path_tree(&reaming_path, host);
 
     quote! {
         match &forwarded_path[#prefix_len..] {
@@ -139,8 +139,8 @@ fn handle_prefixed(paths: &HashSet<String>, prefix_len: usize) -> TokenStream {
     }
 }
 
-fn generate_case_path_tree(paths: &HashSet<String>) -> (TokenStream, TokenStream) {
-    let forward_request = get_forward_request("TODO_HOST:80");
+fn generate_case_path_tree(paths: &HashSet<String>, host: &str) -> (TokenStream, TokenStream) {
+    let forward_request = get_forward_request(host);
     match filter_common_paths(paths) {
         None => {
             let mut tokens = TokenStream::new();
@@ -155,12 +155,13 @@ fn generate_case_path_tree(paths: &HashSet<String>) -> (TokenStream, TokenStream
         }
         Some((prefix, common_paths)) => {
             let prefixed_paths =
-                handle_prefixed(&filter_prefix(&prefix, &common_paths), prefix.len());
+                handle_prefixed(&filter_prefix(&prefix, &common_paths), prefix.len(), host);
             let (recursion_cases, recursion_partial) = generate_case_path_tree(
                 &paths
                     .difference(&common_paths)
                     .map(|s| s.to_string())
                     .collect(),
+                host,
             );
             let mut partial = quote! {
                 if forwarded_path.starts_with(#prefix) {
@@ -192,7 +193,7 @@ fn generate_forward_strict(api: &Api) -> TokenStream {
         .iter()
         .map(|e| e.path.clone())
         .collect();
-    let (cases, partial) = generate_case_path_tree(paths);
+    let (cases, partial) = generate_case_path_tree(paths, &api.host);
     quote! {
         #app_name => {
             match forwarded_path {
