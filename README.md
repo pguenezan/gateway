@@ -16,3 +16,8 @@ public key for the JWT token in `gateway/src/public_key.pem`.
 
 * `remove_authorization_header` — Remove the header `Authorization` from the
   forwarded request
+
+## TODO
+
+- Add correct perm check for capture endpoint w/ forward_strict
+- Add chain request/response logic
