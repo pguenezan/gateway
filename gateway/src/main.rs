@@ -97,22 +97,11 @@ async fn response(mut req: Request<Body>, client: Client<HttpConnector>) -> Resu
     let app = &path[..slash_index];
 
     let mut forwarded_path = &req.uri().path()[app.len()..];
-    let method_str: &str = &req.method().to_string();
-    let perm = format!("{}::{}::{}", &app[1..], method_str, forwarded_path);
-
-    let labels = [&app[1..], forwarded_path, method_str];
-    HTTP_COUNTER.with_label_values(&labels).inc();
-    let timer = HTTP_REQ_HISTOGRAM.with_label_values(&labels).start_timer();
 
     let claims = match get_claims(req.headers()).await {
         Some(claims) => claims,
         None => return get_response!(StatusCode::FORBIDDEN, FORBIDDEN),
     };
-    if !claims.roles.contains(&perm) {
-        return get_response!(StatusCode::FORBIDDEN, FORBIDDEN);
-    }
-
-    println!("{} ({}) => {}", claims.preferred_username, claims.sub, perm);
 
     let forwarded_uri = match req
         .uri()

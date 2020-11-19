@@ -19,5 +19,4 @@ public key for the JWT token in `gateway/src/public_key.pem`.
 
 ## TODO
 
-- Add correct perm check for capture endpoint w/ forward_strict
 - Add chain request/response logic
