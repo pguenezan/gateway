@@ -65,6 +65,15 @@ fn check_field(name: &str, value: &str) -> Result<String, String> {
             if !value.starts_with('/') {
                 return Err(format!("app_name: {} should start with `/`", value));
             }
+            if value[1..].contains('/') {
+                return Err(format!("app_name: {} should only have one `/`", value));
+            }
+            if value == "/metrics" || value == "/health" {
+                return Err(format!(
+                    "app_name: {} cannot be `/metrics` or `/health`",
+                    value
+                ));
+            }
             Ok(value.to_string())
         }
         "host" => match Url::parse(&format!("http://{}", value)) {

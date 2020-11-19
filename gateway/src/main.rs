@@ -22,6 +22,7 @@ use macros::gateway_config;
 type GenericError = Box<dyn std::error::Error + Send + Sync>;
 type Result<T> = std::result::Result<T, GenericError>;
 
+static OK: &[u8] = b"Ok";
 static NOTFOUND: &[u8] = b"Not Found";
 static FORBIDDEN: &[u8] = b"Forbidden";
 static BADGATEWAY: &[u8] = b"Bad Gateway";
@@ -85,8 +86,10 @@ async fn metrics() -> Result<Response<Body>> {
 }
 
 async fn response(mut req: Request<Body>, client: Client<HttpConnector>) -> Result<Response<Body>> {
-    if req.uri().path() == "/metrics" {
-        return metrics().await;
+    match req.uri().path() {
+        "/metrics" => return metrics().await,
+        "/health" => return get_response!(StatusCode::OK, OK),
+        _ => (),
     }
 
     let path = &req.uri().path();
