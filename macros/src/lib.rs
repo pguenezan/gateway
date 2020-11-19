@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use proc_macro2::TokenStream;
 use quote::quote;
@@ -29,10 +29,39 @@ fn get_forward_request(host: &str) -> TokenStream {
     }
 }
 
-// fn check_chain_to(chain_to: &str, apis: &HashMap<String, Api>) -> Result<String, String> {
-//     // TODO check endpoints validity (for chain)
-//     // len > 2 && start with / has app
-// }
+fn check_chain_to(chain_to: &str, apis: &HashMap<String, Api>) -> Result<(), String> {
+    let app = &chain_to[..1 + chain_to[1..].find('/').unwrap()];
+    let path = &chain_to[app.len()..];
+
+    let api = match apis.get(app) {
+        Some(api) => api,
+        None => return Err(format!("chain_to: `{}` app doesn't exists", chain_to)),
+    };
+
+    if api.mode != ApiMode::ForwardStrict {
+        return Err(format!(
+            "chain_to: `{}` app mode must be `forward_strict`",
+            chain_to
+        ));
+    }
+
+    for endpoint in api.endpoints.as_ref().unwrap() {
+        if endpoint.path == path {
+            if endpoint.chain_to != None {
+                return Err(format!(
+                    "chain_to: `{}` cannot be a chainned endpoint",
+                    chain_to
+                ));
+            }
+            if endpoint.method != "POST" {
+                return Err(format!("chain_to: `{}` must be POST endpoint", chain_to));
+            }
+            return Ok(());
+        }
+    }
+
+    Err(format!("chain_to: `{}` unknown endpoint", chain_to))
+}
 
 fn check_for_conflicts(api: &Api) -> Result<(), String> {
     if api.mode == ApiMode::ForwardAll {
@@ -218,11 +247,27 @@ pub fn gateway_config(input: proc_macro::TokenStream) -> proc_macro::TokenStream
     };
 
     let mut cases = TokenStream::new();
-    for (_, api) in apis {
+    for api in apis.values() {
         match check_for_conflicts(&api) {
             Ok(_) => (),
             Err(msg) => panic!("{}", msg),
         };
+
+        if api.mode == ApiMode::ForwardStrict {
+            for endpoint in api.endpoints.as_ref().unwrap() {
+                match &endpoint.chain_to {
+                    Some(chain_to) => {
+                        for path in chain_to {
+                            match check_chain_to(path, &apis) {
+                                Ok(_) => (),
+                                Err(msg) => panic!("{}", msg),
+                            }
+                        }
+                    }
+                    None => (),
+                }
+            }
+        }
 
         cases.extend(match api.mode {
             ApiMode::ForwardStrict => generate_forward_strict(&api),

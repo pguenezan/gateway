@@ -86,7 +86,17 @@ fn parse_chain_to(input: Expr) -> Result<Vec<String>, proc_macro::TokenStream> {
 
     let array = to_array(input)?;
     for elem in array.elems {
-        chain_to.push(expr_to_str(&elem));
+        let path = expr_to_str(&elem);
+        if !path.starts_with('/') {
+            return to_compile_error!(elem.span(), "should start with `/`");
+        }
+        if !path.ends_with('/') {
+            return to_compile_error!(elem.span(), "should end with `/`");
+        }
+        if path[1..].find('/') == None {
+            return to_compile_error!(elem.span(), "should app and endpoint");
+        }
+        chain_to.push(path);
     }
 
     Ok(chain_to)

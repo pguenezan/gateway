@@ -10,18 +10,17 @@ gateway_config! {
             host: "127.0.0.1:8001",
             mode: "forward_strict",
             endpoints: [
-                // Endpoint {
-                //     path: "/i_shoud_exist/",
-                //     method: "POST",
-                //     chain_to: [
-                //         "/foo_bar/no_forward_all_please",
-                //         "/misc/i_shoud_exist",
-                //         "/misc/this_shoud_be_post",
-                //     ],
-                // },
+                Endpoint {
+                    path: "/i_shoud_exist/",
+                    method: "POST",
+                    chain_to: [
+                        "/misc/this_shoud_be_post/",
+                        "/misc/report/",
+                    ],
+                },
                 Endpoint {
                     path: "/this_shoud_be_post/",
-                    method: "GET",
+                    method: "POST",
                 },
                 Endpoint {
                     path: "/report.{format}/",
@@ -29,7 +28,7 @@ gateway_config! {
                 },
                 Endpoint {
                     path: "/report/",
-                    method: "GET",
+                    method: "POST",
                 },
                 Endpoint {
                     path: "/report.{format}/view/",
