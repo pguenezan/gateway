@@ -10,7 +10,7 @@ test:
     - echo ${PUBLIC_KEY} > gateway/src/public_key.pem
     - cargo test
 
-docker_build:
+docker_build_base:
   image: docker:latest
   stage: build
   services:
@@ -18,7 +18,19 @@ docker_build:
   before_script:
     - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" $CI_REGISTRY
   script:
-    - echo ${CONFIG_FILE} > gateway/src/config.rs
+    - echo ${PUBLIC_KEY} > gateway/src/public_key.pem
+    - docker build --cache-from "$CI_REGISTRY_IMAGE:base_$CI_COMMIT_REF_SLUG" -t "$CI_REGISTRY_IMAGE:base_$CI_COMMIT_REF_SLUG" -f Dockerfile_base .
+    - docker push "$CI_REGISTRY_IMAGE:base_$CI_COMMIT_REF_SLUG"
+
+docker_build:
+  image: docker:latest
+  stage: build
+  needs: ["docker_build_base"]
+  services:
+    - docker:dind
+  before_script:
+    - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" $CI_REGISTRY
+  script:
     - echo ${PUBLIC_KEY} > gateway/src/public_key.pem
     - docker build --cache-from "$CI_REGISTRY_IMAGE:$CI_COMMIT_REF_SLUG" -t "$CI_REGISTRY_IMAGE:$CI_COMMIT_REF_SLUG" --build-arg BRANCH=${CI_COMMIT_BRANCH} .
     - docker push "$CI_REGISTRY_IMAGE:$CI_COMMIT_REF_SLUG"
