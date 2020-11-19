@@ -1,5 +1,6 @@
 stages:
   - test
+  - build_base
   - build
 
 test:
@@ -12,7 +13,7 @@ test:
 
 docker_build_base:
   image: docker:latest
-  stage: build
+  stage: build_base
   services:
     - docker:dind
   before_script:
