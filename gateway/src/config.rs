@@ -62,6 +62,10 @@ gateway_config! {
                     path: "/alone/{i_am}/",
                     method: "GET",
                 },
+                Endpoint {
+                    path: "/",
+                    method: "GET",
+                },
             ],
         },
     ]

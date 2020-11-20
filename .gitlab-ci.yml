@@ -7,7 +7,6 @@ test:
   image: rustlang/rust:nightly
   stage: test
   script:
-    - echo ${CONFIG_FILE} > gateway/src/config.rs
     - echo ${PUBLIC_KEY} > gateway/src/public_key.pem
     - cargo test
 
