@@ -72,7 +72,10 @@ fn get_forward_request(api: &Api, full_path: Option<&str>) -> TokenStream {
                 timer.observe_duration();
                 return Ok(response)
             },
-            Err(_) => return get_response!(StatusCode::BAD_GATEWAY, BADGATEWAY),
+            Err(error) => {
+                eprintln!("502 for {}: {:?}", uri_string, error);
+                return get_response!(StatusCode::BAD_GATEWAY, BADGATEWAY)
+            },
         }
     }
 }
