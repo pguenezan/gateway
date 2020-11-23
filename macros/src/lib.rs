@@ -73,7 +73,7 @@ fn get_forward_request(api: &Api, full_path: Option<&str>) -> TokenStream {
                 return Ok(response)
             },
             Err(error) => {
-                eprintln!("502 for {}: {:?}", uri_string, error);
+                println!("502 for {}: {:?}", uri_string, error);
                 return get_response!(StatusCode::BAD_GATEWAY, BADGATEWAY)
             },
         }
