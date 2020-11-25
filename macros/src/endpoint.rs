@@ -61,7 +61,7 @@ fn check_for_params(path: &str) -> Result<(), String> {
 fn check_field(name: &str, value: &str) -> Result<String, String> {
     match name {
         "path" => {
-            if value.len() < 1 {
+            if value.is_empty() {
                 return Err(format!("path: {} must be at least 1 characters", value));
             }
             if !value.starts_with('/') {

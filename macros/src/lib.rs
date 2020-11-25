@@ -24,8 +24,6 @@ fn get_permission_check(api: &Api, full_path: Option<&str>) -> TokenStream {
             if !claims.roles.contains(&perm) {
                 return get_response!(StatusCode::FORBIDDEN, FORBIDDEN);
             }
-
-            println!("{} ({}) => {}", claims.preferred_username, claims.sub, perm);
         },
         Some(full_path) => {
             let re = Regex::new("\\{[^/]*\\}").unwrap();
@@ -58,6 +56,7 @@ fn get_forward_request(api: &Api, full_path: Option<&str>) -> TokenStream {
     let host = &api.host;
 
     let check_perm = get_permission_check(api, full_path);
+    let role_prefix = format!("{}::roles::", api.app_name);
 
     quote! {
         #check_perm
@@ -67,7 +66,7 @@ fn get_forward_request(api: &Api, full_path: Option<&str>) -> TokenStream {
             Ok(uri) => *req.uri_mut() = uri,
             Err(_) => return get_response!(StatusCode::NOT_FOUND, NOTFOUND),
         };
-        inject_headers(req.headers_mut(), &claims);
+        inject_headers(req.headers_mut(), &claims, #role_prefix, token_type);
         match client.request(req).await {
             Ok(response) => {
                 timer.observe_duration();

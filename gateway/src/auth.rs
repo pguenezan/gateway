@@ -1,8 +1,6 @@
 use std::collections::HashSet;
 use std::env;
 
-use hyper::header::{HeaderMap, HeaderValue, AUTHORIZATION};
-
 use jsonwebtoken::{decode, Algorithm, DecodingKey, Validation};
 use serde::Deserialize;
 
@@ -42,14 +40,22 @@ lazy_static! {
         aud: get_audience(),
         sub: None,
     };
-    static ref PUBLIC_KEY: DecodingKey<'static> =
-        DecodingKey::from_rsa_pem(include_bytes!("public_key.pem")).unwrap();
+    static ref PUBLIC_KEY_SHORT: DecodingKey<'static> =
+        DecodingKey::from_rsa_pem(include_bytes!("public_key_short.pem")).unwrap();
+    static ref PUBLIC_KEY_LONG: DecodingKey<'static> =
+        DecodingKey::from_rsa_pem(include_bytes!("public_key_long.pem")).unwrap();
 }
 
 const AUTH_SHIFT: usize = "Bearer ".len();
 
-pub async fn get_claims(headers: &HeaderMap<HeaderValue>) -> Option<Claims> {
-    let authorization = headers.get(AUTHORIZATION)?.to_str().ok()?;
-    let token = decode::<Claims>(&authorization[AUTH_SHIFT..], &PUBLIC_KEY, &VALIDATION).ok()?;
-    return Some(token.claims);
+pub async fn get_claims(authorization: &str) -> Option<(Claims, &'static str)> {
+    match decode::<Claims>(&authorization[AUTH_SHIFT..], &PUBLIC_KEY_SHORT, &VALIDATION) {
+        Ok(token) => Some((token.claims, "short")),
+        Err(_) => {
+            let token =
+                decode::<Claims>(&authorization[AUTH_SHIFT..], &PUBLIC_KEY_LONG, &VALIDATION)
+                    .ok()?;
+            Some((token.claims, "long"))
+        }
+    }
 }

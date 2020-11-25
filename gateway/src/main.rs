@@ -3,7 +3,7 @@ use std::net::SocketAddr;
 use std::process::exit;
 
 use hyper::client::HttpConnector;
-use hyper::header::{HeaderValue, CONTENT_TYPE};
+use hyper::header::{HeaderValue, CONTENT_TYPE, AUTHORIZATION};
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Client, HeaderMap, Request, Response, Server, StatusCode};
 
@@ -52,7 +52,7 @@ lazy_static! {
     .unwrap();
 }
 
-fn inject_headers(headers: &mut HeaderMap<HeaderValue>, claims: &Claims) {
+fn inject_headers(headers: &mut HeaderMap<HeaderValue>, claims: &Claims, role_prefix: &str, token_type: &str) {
     if cfg!(feature = "remove_authorization_header") {
         headers.remove("Authorization");
     }
@@ -68,6 +68,22 @@ fn inject_headers(headers: &mut HeaderMap<HeaderValue>, claims: &Claims) {
     if let Ok(value) = claims.family_name.parse() {
         headers.insert("X-Forwarded-User-Last-Name", value);
     };
+    if let Ok(value) = claims.email.parse() {
+        headers.insert("X-Forwarded-User-Email", value);
+    }
+    let roles = claims
+        .roles
+        .iter()
+        .filter(|role| role.starts_with(role_prefix))
+        .map(|role| &role[role_prefix.len()..])
+        .collect::<Vec<&str>>()
+        .join(",");
+    if let Ok(value) = roles.parse() {
+        headers.insert("X-Forwarded-User-Roles", value);
+    }
+    if let Ok(value) = token_type.parse() {
+        headers.insert("X-Forwarded-User-Type", value);
+    }
 }
 
 async fn metrics() -> Result<Response<Body>> {
@@ -101,7 +117,14 @@ async fn response(mut req: Request<Body>, client: Client<HttpConnector>) -> Resu
 
     let mut forwarded_path = &req.uri().path()[app.len()..];
 
-    let claims = match get_claims(req.headers()).await {
+    let authorization = match req.headers().get(AUTHORIZATION) {
+        None => return get_response!(StatusCode::FORBIDDEN, FORBIDDEN),
+        Some(authorization) => match authorization.to_str() {
+            Err(_) => return get_response!(StatusCode::FORBIDDEN, FORBIDDEN),
+            Ok(authorization) => authorization,
+        },
+    };
+    let (claims, token_type) = match get_claims(authorization).await {
         Some(claims) => claims,
         None => return get_response!(StatusCode::FORBIDDEN, FORBIDDEN),
     };

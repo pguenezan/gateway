@@ -1,2 +1,2 @@
 /target
-gateway/src/public_key.pem
+gateway/src/*.pem
