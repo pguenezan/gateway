@@ -7,7 +7,8 @@ test:
   image: rustlang/rust:nightly
   stage: test
   script:
-    - echo ${PUBLIC_KEY} > gateway/src/public_key.pem
+    - echo "${PUBLIC_KEY_SHORT}" | base64 -d > gateway/src/public_key_short.pem
+    - echo "${PUBLIC_KEY_LONG}" | base64 -d > gateway/src/public_key_long.pem
     - cargo test
 
 docker_build_base:
