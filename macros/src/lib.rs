@@ -29,7 +29,7 @@ fn get_permission_check(api: &Api, full_path: Option<&str>) -> TokenStream {
             let re = Regex::new("\\{[^/]*\\}").unwrap();
             for endpoint in api.endpoints.as_ref().unwrap() {
                 if endpoint.path == full_path {
-                    let perm_path = re.replace_all(&endpoint.path, "{param}");
+                    let perm_path = re.replace_all(&endpoint.path, "{}");
                     let app = &api.app_name[1..];
                     let method = &endpoint.method;
                     let perm = format!("{}::{}::{}", app, method, perm_path);
