@@ -3,7 +3,7 @@ use std::net::SocketAddr;
 use std::process::exit;
 
 use hyper::client::HttpConnector;
-use hyper::header::{HeaderValue, CONTENT_TYPE, AUTHORIZATION};
+use hyper::header::{HeaderValue, AUTHORIZATION, CONTENT_TYPE};
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Client, HeaderMap, Request, Response, Server, StatusCode};
 
@@ -40,19 +40,27 @@ const LABEL_NAMES: [&str; 3] = ["app", "path", "method"];
 
 lazy_static! {
     static ref HTTP_COUNTER: CounterVec = register_counter_vec!(
-        opts!("http_requests_total", "Number of HTTP requests made."),
+        opts!(
+            "gateway_http_requests_total",
+            "Number of HTTP requests made."
+        ),
         &LABEL_NAMES
     )
     .unwrap();
     static ref HTTP_REQ_HISTOGRAM: HistogramVec = register_histogram_vec!(
-        "http_request_duration_seconds",
+        "gateway_http_request_duration_seconds",
         "The HTTP request latencies in seconds.",
         &LABEL_NAMES
     )
     .unwrap();
 }
 
-fn inject_headers(headers: &mut HeaderMap<HeaderValue>, claims: &Claims, role_prefix: &str, token_type: &str) {
+fn inject_headers(
+    headers: &mut HeaderMap<HeaderValue>,
+    claims: &Claims,
+    role_prefix: &str,
+    token_type: &str,
+) {
     if cfg!(feature = "remove_authorization_header") {
         headers.remove("Authorization");
     }

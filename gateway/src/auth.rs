@@ -49,6 +49,9 @@ lazy_static! {
 const AUTH_SHIFT: usize = "Bearer ".len();
 
 pub async fn get_claims(authorization: &str) -> Option<(Claims, &'static str)> {
+    if authorization.len() <= AUTH_SHIFT {
+        return None;
+    }
     match decode::<Claims>(&authorization[AUTH_SHIFT..], &PUBLIC_KEY_SHORT, &VALIDATION) {
         Ok(token) => Some((token.claims, "short")),
         Err(_) => {
