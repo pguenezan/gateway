@@ -68,8 +68,9 @@ fn get_forward_request(api: &Api, full_path: Option<&str>) -> TokenStream {
         };
         inject_headers(req.headers_mut(), &claims, #role_prefix, token_type);
         match client.request(req).await {
-            Ok(response) => {
+            Ok(mut response) => {
                 timer.observe_duration();
+                response.headers_mut().insert(ACCESS_CONTROL_ALLOW_ORIGIN, "*".parse().unwrap());
                 return Ok(response)
             },
             Err(error) => {

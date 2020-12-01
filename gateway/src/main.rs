@@ -3,7 +3,7 @@ use std::net::SocketAddr;
 use std::process::exit;
 
 use hyper::client::HttpConnector;
-use hyper::header::{HeaderValue, AUTHORIZATION, CONTENT_TYPE};
+use hyper::header::{HeaderValue, ACCESS_CONTROL_ALLOW_ORIGIN, AUTHORIZATION, CONTENT_TYPE};
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Client, HeaderMap, Request, Response, Server, StatusCode};
 
