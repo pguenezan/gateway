@@ -122,6 +122,11 @@ async fn response(mut req: Request<Body>, client: Client<HttpConnector>) -> Resu
         _ => (),
     }
 
+    // to handle CORS
+    if req.method() == Method::OPTIONS {
+        return get_response!(StatusCode::NO_CONTENT, NOCONTENT);
+    }
+
     let path = &req.uri().path();
     let slash_index = match path[1..].find('/') {
         Some(slash_index) => slash_index + 1,
