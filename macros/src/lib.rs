@@ -70,7 +70,7 @@ fn get_forward_request(api: &Api, full_path: Option<&str>) -> TokenStream {
         match client.request(req).await {
             Ok(mut response) => {
                 timer.observe_duration();
-                response.headers_mut().insert(ACCESS_CONTROL_ALLOW_ORIGIN, "*".parse().unwrap());
+                inject_cors(response.headers_mut());
                 return Ok(response)
             },
             Err(error) => {

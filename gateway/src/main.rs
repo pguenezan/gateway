@@ -31,6 +31,7 @@ macro_rules! get_response {
     ($status_code:expr, $content:expr) => {
         Ok(Response::builder()
             .status($status_code)
+            .header(ACCESS_CONTROL_ALLOW_ORIGIN, "*")
             .body($content.into())
             .unwrap())
     };
@@ -53,6 +54,10 @@ lazy_static! {
         &LABEL_NAMES
     )
     .unwrap();
+}
+
+fn inject_cors(headers: &mut HeaderMap<HeaderValue>) {
+    headers.insert(ACCESS_CONTROL_ALLOW_ORIGIN, "*".parse().unwrap());
 }
 
 fn inject_headers(
