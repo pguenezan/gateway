@@ -5,7 +5,7 @@ use std::process::exit;
 use hyper::client::HttpConnector;
 use hyper::header::{HeaderValue, ACCESS_CONTROL_ALLOW_ORIGIN, AUTHORIZATION, CONTENT_TYPE};
 use hyper::service::{make_service_fn, service_fn};
-use hyper::{Body, Client, HeaderMap, Request, Response, Server, StatusCode};
+use hyper::{Body, Client, HeaderMap, Method, Request, Response, Server, StatusCode};
 
 use lazy_static::lazy_static;
 
@@ -26,6 +26,7 @@ static OK: &[u8] = b"Ok";
 static NOTFOUND: &[u8] = b"Not Found";
 static FORBIDDEN: &[u8] = b"Forbidden";
 static BADGATEWAY: &[u8] = b"Bad Gateway";
+static NOCONTENT: &[u8] = b"No Content";
 
 macro_rules! get_response {
     ($status_code:expr, $content:expr) => {

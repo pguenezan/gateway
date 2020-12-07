@@ -40,6 +40,9 @@ fn get_permission_check(api: &Api, full_path: Option<&str>) -> TokenStream {
                         let timer = HTTP_REQ_HISTOGRAM.with_label_values(&labels).start_timer();
 
                         if !claims.roles.contains(&#perm.to_owned()) {
+                            if (req.method() == Method::OPTIONS) {
+                                return get_response!(StatusCode::NO_CONTENT, NOCONTENT);
+                            }
                             return get_response!(StatusCode::FORBIDDEN, FORBIDDEN);
                         }
 
