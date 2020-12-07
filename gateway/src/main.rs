@@ -3,7 +3,10 @@ use std::net::SocketAddr;
 use std::process::exit;
 
 use hyper::client::HttpConnector;
-use hyper::header::{HeaderValue, ACCESS_CONTROL_ALLOW_ORIGIN, AUTHORIZATION, CONTENT_TYPE};
+use hyper::header::{
+    HeaderValue, ACCESS_CONTROL_ALLOW_HEADERS, ACCESS_CONTROL_ALLOW_METHODS,
+    ACCESS_CONTROL_ALLOW_ORIGIN, AUTHORIZATION, CONTENT_TYPE,
+};
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Client, HeaderMap, Method, Request, Response, Server, StatusCode};
 
@@ -33,6 +36,8 @@ macro_rules! get_response {
         Ok(Response::builder()
             .status($status_code)
             .header(ACCESS_CONTROL_ALLOW_ORIGIN, "*")
+            .header(ACCESS_CONTROL_ALLOW_HEADERS, "Authorization")
+            .header(ACCESS_CONTROL_ALLOW_METHODS, "POST, GET, OPTIONS")
             .body($content.into())
             .unwrap())
     };
