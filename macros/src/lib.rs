@@ -70,7 +70,7 @@ fn get_forward_request(
     quote! {
         #check_perm
         let uri_string = format!(concat!("http://", #host, "/{}"), forwarded_uri);
-        println!("{}: {}", #method_str, uri_string);
+        println!("{}: {}", method_str, uri_string);
         match uri_string.parse() {
             Ok(uri) => *req.uri_mut() = uri,
             Err(_) => return get_response!(StatusCode::NOT_FOUND, NOTFOUND),
