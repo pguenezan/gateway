@@ -11,10 +11,13 @@ mod util;
 
 use api::{parse_apis, Api, ApiMode};
 
-fn get_permission_check(api: &Api, full_path: Option<&str>) -> TokenStream {
-    match full_path {
-        None => quote! {
-            let method_str: &str = &req.method().to_string();
+fn get_permission_check(
+    api: &Api,
+    full_path: Option<&str>,
+    method_str: Option<&str>,
+) -> TokenStream {
+    match (full_path, method_str) {
+        (None, None) => quote! {
             let perm = format!("{}::{}::{}", &app[1..], method_str, forwarded_path);
 
             let labels = [&app[1..], forwarded_path, method_str];
@@ -25,17 +28,16 @@ fn get_permission_check(api: &Api, full_path: Option<&str>) -> TokenStream {
                 return get_response!(StatusCode::FORBIDDEN, FORBIDDEN);
             }
         },
-        Some(full_path) => {
+        (Some(full_path), Some(method_str)) => {
             let re = Regex::new("\\{[^/]*\\}").unwrap();
             for endpoint in api.endpoints.as_ref().unwrap() {
                 if endpoint.path == full_path {
                     let perm_path = re.replace_all(&endpoint.path, "{}");
                     let app = &api.app_name[1..];
-                    let method = &endpoint.method;
-                    let perm = format!("{}::{}::{}", app, method, perm_path);
+                    let perm = format!("{}::{}::{}", app, method_str, perm_path);
 
                     return quote! {
-                        let labels = [#app, #perm_path, #method];
+                        let labels = [#app, #perm_path, #method_str];
                         HTTP_COUNTER.with_label_values(&labels).inc();
                         let timer = HTTP_REQ_HISTOGRAM.with_label_values(&labels).start_timer();
 
@@ -49,19 +51,26 @@ fn get_permission_check(api: &Api, full_path: Option<&str>) -> TokenStream {
             }
             panic!("Could not find endpoint for path `{}`", full_path);
         }
+        (_, _) => {
+            panic!("wrong number of arguments");
+        }
     }
 }
 
-fn get_forward_request(api: &Api, full_path: Option<&str>) -> TokenStream {
+fn get_forward_request(
+    api: &Api,
+    full_path: Option<&str>,
+    method_str: Option<&str>,
+) -> TokenStream {
     let host = &api.host;
 
-    let check_perm = get_permission_check(api, full_path);
+    let check_perm = get_permission_check(api, full_path, method_str);
     let role_prefix = format!("{}::roles::", api.app_name);
 
     quote! {
         #check_perm
         let uri_string = format!(concat!("http://", #host, "/{}"), forwarded_uri);
-        println!("{}: {}", req.method(), uri_string);
+        println!("{}: {}", #method_str, uri_string);
         match uri_string.parse() {
             Ok(uri) => *req.uri_mut() = uri,
             Err(_) => return get_response!(StatusCode::NOT_FOUND, NOTFOUND),
@@ -120,12 +129,12 @@ fn check_for_conflicts(api: &Api) -> Result<(), String> {
         return Ok(());
     }
 
-    let paths: HashSet<String> = api
+    let paths: HashSet<(String, String)> = api
         .endpoints
         .as_ref()
         .unwrap()
         .iter()
-        .map(|e| e.path.clone())
+        .map(|e| (e.path.clone(), e.method.clone()))
         .collect();
     if api.endpoints.as_ref().unwrap().len() != paths.len() {
         return Err(format!("duplicate endpoints in {}", api.app_name));
@@ -138,7 +147,7 @@ fn check_for_conflicts(api: &Api) -> Result<(), String> {
             to_regex.replace_all(&escape(&endpoint.path), "[^/]+")
         ))
         .unwrap();
-        for path_to_check in &paths {
+        for (path_to_check, _) in &paths {
             if *path_to_check != endpoint.path && re.is_match(&path_to_check) {
                 return Err(format!(
                     "endpoint `{}` conflicts with `{}`",
@@ -151,16 +160,20 @@ fn check_for_conflicts(api: &Api) -> Result<(), String> {
 }
 
 fn filter_common_paths(
-    paths: &HashSet<(String, String)>,
-) -> Option<(String, HashSet<(String, String)>)> {
+    paths: &HashSet<(String, String, String)>,
+) -> Option<(String, HashSet<(String, String, String)>)> {
     let has_param = Regex::new("\\{[^/]*\\}").unwrap();
-    for (path, _) in paths {
+    for (path, _, _) in paths {
         if has_param.is_match(path) {
             let mut common_paths = HashSet::new();
             let prefix = &path[..has_param.find(path).unwrap().start()];
-            for (other_path, full_path) in paths {
+            for (other_path, full_path, method) in paths {
                 if other_path.starts_with(prefix) {
-                    common_paths.insert((other_path.to_string(), full_path.to_string()));
+                    common_paths.insert((
+                        other_path.to_string(),
+                        full_path.to_string(),
+                        method.to_string(),
+                    ));
                 }
             }
             return Some((prefix.to_string(), common_paths));
@@ -169,23 +182,34 @@ fn filter_common_paths(
     None
 }
 
-fn filter_prefix(prefix: &str, paths: &HashSet<(String, String)>) -> HashSet<(String, String)> {
+fn filter_prefix(
+    prefix: &str,
+    paths: &HashSet<(String, String, String)>,
+) -> HashSet<(String, String, String)> {
     let mut filtered = HashSet::new();
-    for (path, full_path) in paths {
+    for (path, full_path, method) in paths {
         let suffix = &path[prefix.len()..];
-        filtered.insert((suffix.to_string(), full_path.to_string()));
+        filtered.insert((
+            suffix.to_string(),
+            full_path.to_string(),
+            method.to_string(),
+        ));
     }
     filtered
 }
 
-fn handle_prefixed(paths: &HashSet<(String, String)>, prefix_len: usize, api: &Api) -> TokenStream {
+fn handle_prefixed(
+    paths: &HashSet<(String, String, String)>,
+    prefix_len: usize,
+    api: &Api,
+) -> TokenStream {
     let has_capture_first = Regex::new("^\\{[^/]*\\}").unwrap();
     let mut simple_cases = TokenStream::new();
-    for (path, full_path) in paths {
+    for (path, full_path, method) in paths {
         if !has_capture_first.is_match(&path) {
-            let forward_request = get_forward_request(api, Some(full_path));
+            let forward_request = get_forward_request(api, Some(full_path), Some(method));
             simple_cases.extend(quote! {
-                #path => {
+                (#path, #method) => {
                     #forward_request
                 },
             });
@@ -193,11 +217,12 @@ fn handle_prefixed(paths: &HashSet<(String, String)>, prefix_len: usize, api: &A
     }
 
     let mut reaming_path = HashSet::new();
-    for (path, full_path) in paths {
+    for (path, full_path, method) in paths {
         if has_capture_first.is_match(&path) {
             reaming_path.insert((
                 path[has_capture_first.find(path).unwrap().end()..].to_string(),
                 full_path.to_string(),
+                method.to_string(),
             ));
         }
     }
@@ -205,7 +230,7 @@ fn handle_prefixed(paths: &HashSet<(String, String)>, prefix_len: usize, api: &A
     let (cases, partial) = generate_case_path_tree(&reaming_path, api);
 
     quote! {
-        match &forwarded_path[#prefix_len..] {
+        match (&forwarded_path[#prefix_len..], method_str) {
             #simple_cases
             _ => (),
         };
@@ -213,7 +238,7 @@ fn handle_prefixed(paths: &HashSet<(String, String)>, prefix_len: usize, api: &A
             Some(0) => return get_response!(StatusCode::NOT_FOUND, NOTFOUND),
             Some(slash_index) => {
                 forwarded_path = &forwarded_path[#prefix_len + slash_index..];
-                match forwarded_path {
+                match (forwarded_path, method_str) {
                     #cases
                     _ => (),
                 };
@@ -226,16 +251,16 @@ fn handle_prefixed(paths: &HashSet<(String, String)>, prefix_len: usize, api: &A
 }
 
 fn generate_case_path_tree(
-    paths: &HashSet<(String, String)>,
+    paths: &HashSet<(String, String, String)>,
     api: &Api,
 ) -> (TokenStream, TokenStream) {
     match filter_common_paths(paths) {
         None => {
             let mut tokens = TokenStream::new();
-            for (path, full_path) in paths {
-                let forward_request = get_forward_request(api, Some(full_path));
+            for (path, full_path, method) in paths {
+                let forward_request = get_forward_request(api, Some(full_path), Some(method));
                 tokens.extend(quote! {
-                    #path => {
+                    (#path, #method) => {
                         #forward_request
                     },
                 });
@@ -248,7 +273,7 @@ fn generate_case_path_tree(
             let (recursion_cases, recursion_partial) = generate_case_path_tree(
                 &paths
                     .difference(&common_paths)
-                    .map(|(p, f)| (p.to_string(), f.to_string()))
+                    .map(|(p, f, m)| (p.to_string(), f.to_string(), m.to_string()))
                     .collect(),
                 api,
             );
@@ -265,7 +290,7 @@ fn generate_case_path_tree(
 
 fn generate_forward_all(api: &Api) -> TokenStream {
     let app_name = &api.app_name;
-    let forward_request = get_forward_request(&api, None);
+    let forward_request = get_forward_request(&api, None, None);
     quote! {
         #app_name => {
             #forward_request
@@ -275,14 +300,18 @@ fn generate_forward_all(api: &Api) -> TokenStream {
 
 fn generate_forward_strict(api: &Api) -> TokenStream {
     let app_name = &api.app_name;
-    let mut paths: HashSet<(String, String)> = HashSet::new();
+    let mut paths: HashSet<(String, String, String)> = HashSet::new();
     for endpoint in api.endpoints.as_ref().unwrap() {
-        paths.insert((endpoint.path.clone(), endpoint.path.clone()));
+        paths.insert((
+            endpoint.path.clone(),
+            endpoint.path.clone(),
+            endpoint.method.clone(),
+        ));
     }
     let (cases, partial) = generate_case_path_tree(&paths, &api);
     quote! {
         #app_name => {
-            match forwarded_path {
+            match (forwarded_path, method_str) {
                 #cases
                 _ => (),
             };

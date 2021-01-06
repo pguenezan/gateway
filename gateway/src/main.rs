@@ -162,6 +162,8 @@ async fn response(mut req: Request<Body>, client: Client<HttpConnector>) -> Resu
         None => return get_response!(StatusCode::NOT_FOUND, NOTFOUND),
     };
 
+    let method_str: &str = &req.method().to_string();
+
     include!("config.rs")
 }
 
