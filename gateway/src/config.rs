@@ -4,11 +4,13 @@ gateway_config! {
             app_name: "/foo_bar",
             host: "127.0.0.1:8000",
             mode: "forward_all",
+            forward_path: "",
         },
         Api {
             app_name: "/misc",
             host: "127.0.0.1:8001",
             mode: "forward_strict",
+            forward_path: "/misc",
             endpoints: [
                 Endpoint {
                     path: "/i_shoud_exist/",

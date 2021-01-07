@@ -62,14 +62,14 @@ fn get_forward_request(
     full_path: Option<&str>,
     method_str: Option<&str>,
 ) -> TokenStream {
-    let host = &api.host;
+    let host = format!("http://{}{}/", &api.host, &api.forward_path);
 
     let check_perm = get_permission_check(api, full_path, method_str);
     let role_prefix = format!("{}::roles::", api.app_name);
 
     quote! {
         #check_perm
-        let uri_string = format!(concat!("http://", #host, "/{}"), forwarded_uri);
+        let uri_string = format!(concat!(#host, "{}"), forwarded_uri);
         println!("{}: {}", method_str, uri_string);
         match uri_string.parse() {
             Ok(uri) => *req.uri_mut() = uri,

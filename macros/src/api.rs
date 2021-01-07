@@ -39,6 +39,7 @@ pub struct Api {
     pub app_name: String,
     pub host: String,
     pub mode: ApiMode,
+    pub forward_path: String,
     pub endpoints: Option<Vec<Endpoint>>,
 }
 
@@ -84,6 +85,15 @@ fn check_field(name: &str, value: &str) -> Result<String, String> {
             Ok(_) => Ok(value.to_string()),
             Err(_) => Err(format!("unknown mode: {}", value)),
         },
+        "forward_path" => {
+            if value.len() == 0 {
+                return Ok(value.to_string());
+            }
+            if !value.starts_with('/') {
+                return Err(format!("forward_path: {} should start with `/`", value));
+            }
+            Ok(value.to_string())
+        }
         name => Err(format!("unknown field name: {}", name)),
     }
 }
@@ -133,6 +143,12 @@ pub fn parse_apis(input: Expr) -> Result<HashMap<String, Api>, proc_macro::Token
             Some(app_name) => app_name,
             None => return to_compile_error!(structure.path.span(), "missing field `app_name`"),
         };
+        let forward_path = match content.get("forward_path") {
+            Some(forward_path) => forward_path,
+            None => {
+                return to_compile_error!(structure.path.span(), "missing field `forward_path`")
+            }
+        };
         let host = match content.get("host") {
             Some(host) => host,
             None => return to_compile_error!(structure.path.span(), "missing field `host`"),
@@ -146,6 +162,7 @@ pub fn parse_apis(input: Expr) -> Result<HashMap<String, Api>, proc_macro::Token
             app_name: app_name.to_string(),
             host: host.to_string(),
             mode: ApiMode::from_str(mode).unwrap(),
+            forward_path: forward_path.to_string(),
             endpoints,
         };
 
