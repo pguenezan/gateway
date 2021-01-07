@@ -36,8 +36,8 @@ macro_rules! get_response {
         Ok(Response::builder()
             .status($status_code)
             .header(ACCESS_CONTROL_ALLOW_ORIGIN, "*")
-            .header(ACCESS_CONTROL_ALLOW_HEADERS, "Authorization")
-            .header(ACCESS_CONTROL_ALLOW_METHODS, "POST, GET, OPTIONS")
+            .header(ACCESS_CONTROL_ALLOW_HEADERS, "*")
+            .header(ACCESS_CONTROL_ALLOW_METHODS, "*")
             .body($content.into())
             .unwrap())
     };
