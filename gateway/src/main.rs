@@ -1,7 +1,10 @@
 use std::env;
 use std::net::SocketAddr;
 use std::process::exit;
+use std::time::Instant;
 
+use http_body::SizeHint;
+use hyper::body::HttpBody;
 use hyper::client::HttpConnector;
 use hyper::header::{
     HeaderValue, ACCESS_CONTROL_ALLOW_HEADERS, ACCESS_CONTROL_ALLOW_METHODS,
@@ -13,8 +16,8 @@ use hyper::{Body, Client, HeaderMap, Method, Request, Response, Server, StatusCo
 use lazy_static::lazy_static;
 
 use prometheus::{
-    opts, register_counter_vec, register_histogram_vec, CounterVec, Encoder, HistogramVec,
-    TextEncoder,
+    exponential_buckets, opts, register_counter_vec, register_histogram_vec, CounterVec, Encoder,
+    HistogramVec, TextEncoder,
 };
 
 mod auth;
@@ -29,21 +32,73 @@ static OK: &[u8] = b"Ok";
 static NOTFOUND: &[u8] = b"Not Found";
 static FORBIDDEN: &[u8] = b"Forbidden";
 static BADGATEWAY: &[u8] = b"Bad Gateway";
-static NOCONTENT: &[u8] = b"No Content";
+static NOCONTENT: &[u8] = b"";
 
-macro_rules! get_response {
-    ($status_code:expr, $content:expr) => {
-        Ok(Response::builder()
-            .status($status_code)
-            .header(ACCESS_CONTROL_ALLOW_ORIGIN, "*")
-            .header(ACCESS_CONTROL_ALLOW_HEADERS, "*")
-            .header(ACCESS_CONTROL_ALLOW_METHODS, "*")
-            .body($content.into())
-            .unwrap())
+#[inline(always)]
+fn commit_metrics(
+    labels: &[&str],
+    start_time: &Instant,
+    status_code: StatusCode,
+    req_size: &SizeHint,
+    res_size: &SizeHint,
+) {
+    let full_labels = vec![labels[0], labels[1], labels[2], status_code.as_str()];
+
+    HTTP_COUNTER.with_label_values(&full_labels).inc();
+
+    HTTP_REQ_LAT_HISTOGRAM
+        .with_label_values(&full_labels)
+        .observe(start_time.elapsed().as_secs_f64());
+
+    HTTP_REQ_SIZE_HISTOGRAM_LOW
+        .with_label_values(&full_labels)
+        .observe(req_size.lower() as f64);
+    match req_size.upper() {
+        Some(size) => HTTP_REQ_SIZE_HISTOGRAM_HIGH
+            .with_label_values(&full_labels)
+            .observe(size as f64),
+        _ => (),
+    };
+
+    HTTP_RES_SIZE_HISTOGRAM_LOW
+        .with_label_values(&full_labels)
+        .observe(res_size.lower() as f64);
+    match res_size.upper() {
+        Some(size) => HTTP_RES_SIZE_HISTOGRAM_HIGH
+            .with_label_values(&full_labels)
+            .observe(size as f64),
+        _ => (),
     };
 }
 
-const LABEL_NAMES: [&str; 3] = ["app", "path", "method"];
+#[inline(always)]
+fn get_response(
+    status_code: StatusCode,
+    content: &'static [u8],
+    labels: &[&str],
+    start_time: &Instant,
+    req_size: &SizeHint,
+) -> Result<Response<Body>> {
+    let response = Response::builder()
+        .status(status_code)
+        .header(ACCESS_CONTROL_ALLOW_ORIGIN, "*")
+        .header(ACCESS_CONTROL_ALLOW_HEADERS, "*")
+        .header(ACCESS_CONTROL_ALLOW_METHODS, "*")
+        .body(content.into())
+        .unwrap();
+
+    commit_metrics(
+        labels,
+        start_time,
+        status_code,
+        req_size,
+        &response.size_hint(),
+    );
+
+    Ok(response)
+}
+
+const LABEL_NAMES: [&str; 4] = ["app", "path", "method", "status_code"];
 
 lazy_static! {
     static ref HTTP_COUNTER: CounterVec = register_counter_vec!(
@@ -54,10 +109,38 @@ lazy_static! {
         &LABEL_NAMES
     )
     .unwrap();
-    static ref HTTP_REQ_HISTOGRAM: HistogramVec = register_histogram_vec!(
+    static ref HTTP_REQ_LAT_HISTOGRAM: HistogramVec = register_histogram_vec!(
         "gateway_http_request_duration_seconds",
         "The HTTP request latencies in seconds.",
         &LABEL_NAMES
+    )
+    .unwrap();
+    static ref HTTP_REQ_SIZE_HISTOGRAM_LOW: HistogramVec = register_histogram_vec!(
+        "gateway_http_request_size_low_bytes",
+        "The HTTP request size in bytes (lower bound).",
+        &LABEL_NAMES,
+        exponential_buckets(1.0, 2.0, 35).unwrap()
+    )
+    .unwrap();
+    static ref HTTP_REQ_SIZE_HISTOGRAM_HIGH: HistogramVec = register_histogram_vec!(
+        "gateway_http_request_size_high_bytes",
+        "The HTTP request size in bytes (upper bound).",
+        &LABEL_NAMES,
+        exponential_buckets(1.0, 2.0, 35).unwrap()
+    )
+    .unwrap();
+    static ref HTTP_RES_SIZE_HISTOGRAM_LOW: HistogramVec = register_histogram_vec!(
+        "gateway_http_response_size_low_bytes",
+        "The HTTP response size in bytes (lower bound).",
+        &LABEL_NAMES,
+        exponential_buckets(1.0, 2.0, 35).unwrap()
+    )
+    .unwrap();
+    static ref HTTP_RES_SIZE_HISTOGRAM_HIGH: HistogramVec = register_histogram_vec!(
+        "gateway_http_response_size_high_bytes",
+        "The HTTP response size in bytes (upper bound).",
+        &LABEL_NAMES,
+        exponential_buckets(1.0, 2.0, 35).unwrap()
     )
     .unwrap();
 }
@@ -120,37 +203,96 @@ async fn metrics() -> Result<Response<Body>> {
     Ok(response)
 }
 
+async fn health() -> Result<Response<Body>> {
+    Ok(Response::builder()
+        .status(StatusCode::OK)
+        .header(ACCESS_CONTROL_ALLOW_ORIGIN, "*")
+        .header(ACCESS_CONTROL_ALLOW_HEADERS, "*")
+        .header(ACCESS_CONTROL_ALLOW_METHODS, "*")
+        .body(OK.into())
+        .unwrap())
+}
+
 async fn response(mut req: Request<Body>, client: Client<HttpConnector>) -> Result<Response<Body>> {
     match req.uri().path() {
-        "/metrics" => return metrics().await,
-        "/health" => return get_response!(StatusCode::OK, OK),
+        "/metrics" => {
+            return metrics().await;
+        }
+        "/health" => {
+            return health().await;
+        }
         _ => (),
-    }
+    };
 
-    // to handle CORS
-    if req.method() == Method::OPTIONS {
-        return get_response!(StatusCode::NO_CONTENT, NOCONTENT);
-    }
+    let start_time = Instant::now();
 
-    let path = &req.uri().path();
+    let path = &req.uri().path().to_owned();
+    let method_str: &str = &req.method().to_string();
+    let req_size = req.size_hint();
+
     let slash_index = match path[1..].find('/') {
         Some(slash_index) => slash_index + 1,
-        None => return get_response!(StatusCode::NOT_FOUND, NOTFOUND),
+        None => {
+            return get_response(
+                StatusCode::NOT_FOUND,
+                &NOTFOUND,
+                &["", path, method_str],
+                &start_time,
+                &req_size,
+            );
+        }
     };
     let app = &path[..slash_index];
+
+    let labels = [app, path, method_str];
+
+    // to handle CORS pre flights
+    if req.method() == Method::OPTIONS {
+        return get_response(
+            StatusCode::NO_CONTENT,
+            &NOCONTENT,
+            &labels,
+            &start_time,
+            &req_size,
+        );
+    }
 
     let mut forwarded_path = &req.uri().path()[app.len()..];
 
     let authorization = match req.headers().get(AUTHORIZATION) {
-        None => return get_response!(StatusCode::FORBIDDEN, FORBIDDEN),
+        None => {
+            return get_response(
+                StatusCode::FORBIDDEN,
+                &FORBIDDEN,
+                &labels,
+                &start_time,
+                &req_size,
+            );
+        }
         Some(authorization) => match authorization.to_str() {
-            Err(_) => return get_response!(StatusCode::FORBIDDEN, FORBIDDEN),
+            Err(_) => {
+                return get_response(
+                    StatusCode::FORBIDDEN,
+                    &FORBIDDEN,
+                    &labels,
+                    &start_time,
+                    &req_size,
+                );
+            }
             Ok(authorization) => authorization,
         },
     };
     let (claims, token_type) = match get_claims(authorization).await {
         Some(claims) => claims,
-        None => return get_response!(StatusCode::FORBIDDEN, FORBIDDEN),
+        None => {
+            return get_response(
+                StatusCode::FORBIDDEN,
+                &FORBIDDEN,
+                &labels,
+                &start_time,
+                &req_size,
+            );
+        }
     };
 
     let forwarded_uri = match req
@@ -159,10 +301,16 @@ async fn response(mut req: Request<Body>, client: Client<HttpConnector>) -> Resu
         .map(|x| &x.as_str()[app.len() + 1..])
     {
         Some(forwarded_uri) => forwarded_uri,
-        None => return get_response!(StatusCode::NOT_FOUND, NOTFOUND),
+        None => {
+            return get_response(
+                StatusCode::NOT_FOUND,
+                &NOTFOUND,
+                &labels,
+                &start_time,
+                &req_size,
+            );
+        }
     };
-
-    let method_str: &str = &req.method().to_string();
 
     include!("config.rs")
 }

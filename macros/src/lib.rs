@@ -19,13 +19,8 @@ fn get_permission_check(
     match (full_path, method_str) {
         (None, None) => quote! {
             let perm = format!("{}::{}::{}", &app[1..], method_str, forwarded_path);
-
-            let labels = [&app[1..], forwarded_path, method_str];
-            HTTP_COUNTER.with_label_values(&labels).inc();
-            let timer = HTTP_REQ_HISTOGRAM.with_label_values(&labels).start_timer();
-
             if !claims.roles.contains(&perm) {
-                return get_response!(StatusCode::FORBIDDEN, FORBIDDEN);
+                return get_response(StatusCode::FORBIDDEN, &FORBIDDEN, &labels, &start_time, &req_size);
             }
         },
         (Some(full_path), Some(method_str)) => {
@@ -37,14 +32,9 @@ fn get_permission_check(
                     let perm = format!("{}::{}::{}", app, method_str, perm_path);
 
                     return quote! {
-                        let labels = [#app, #perm_path, #method_str];
-                        HTTP_COUNTER.with_label_values(&labels).inc();
-                        let timer = HTTP_REQ_HISTOGRAM.with_label_values(&labels).start_timer();
-
                         if !claims.roles.contains(&#perm.to_owned()) {
-                            return get_response!(StatusCode::FORBIDDEN, FORBIDDEN);
+                            return get_response(StatusCode::FORBIDDEN, &FORBIDDEN, &labels, &start_time, &req_size);
                         }
-
                         println!("{} ({}) => {}", claims.preferred_username, claims.sub, #perm);
                     };
                 }
@@ -73,18 +63,18 @@ fn get_forward_request(
         println!("{}: {}", method_str, uri_string);
         match uri_string.parse() {
             Ok(uri) => *req.uri_mut() = uri,
-            Err(_) => return get_response!(StatusCode::NOT_FOUND, NOTFOUND),
+            Err(_) => { return get_response(StatusCode::NOT_FOUND, &NOTFOUND, &labels, &start_time, &req_size); },
         };
         inject_headers(req.headers_mut(), &claims, #role_prefix, token_type);
         match client.request(req).await {
             Ok(mut response) => {
-                timer.observe_duration();
                 inject_cors(response.headers_mut());
+                commit_metrics(&labels, &start_time, response.status(), &req_size, &response.size_hint());
                 return Ok(response)
             },
             Err(error) => {
                 println!("502 for {}: {:?}", uri_string, error);
-                return get_response!(StatusCode::BAD_GATEWAY, BADGATEWAY)
+                return get_response(StatusCode::BAD_GATEWAY, &BADGATEWAY, &labels, &start_time, &req_size);
             },
         }
     }
@@ -235,7 +225,7 @@ fn handle_prefixed(
             _ => (),
         };
         match &forwarded_path[#prefix_len..].find('/') {
-            Some(0) => return get_response!(StatusCode::NOT_FOUND, NOTFOUND),
+            Some(0) => { return get_response(StatusCode::NOT_FOUND, &NOTFOUND, &labels, &start_time, &req_size); },
             Some(slash_index) => {
                 forwarded_path = &forwarded_path[#prefix_len + slash_index..];
                 match (forwarded_path, method_str) {
@@ -243,9 +233,9 @@ fn handle_prefixed(
                     _ => (),
                 };
                 #partial
-                return get_response!(StatusCode::NOT_FOUND, NOTFOUND)
+                return get_response(StatusCode::NOT_FOUND, &NOTFOUND, &labels, &start_time, &req_size);
             },
-            None => return get_response!(StatusCode::NOT_FOUND, NOTFOUND),
+            None => { return get_response(StatusCode::NOT_FOUND, &NOTFOUND, &labels, &start_time, &req_size); },
         }
     }
 }
@@ -316,7 +306,7 @@ fn generate_forward_strict(api: &Api) -> TokenStream {
                 _ => (),
             };
             #partial
-            return get_response!(StatusCode::NOT_FOUND, NOTFOUND)
+            return get_response(StatusCode::NOT_FOUND, &NOTFOUND, &labels, &start_time, &req_size);
         },
     }
 }
@@ -364,7 +354,7 @@ pub fn gateway_config(input: proc_macro::TokenStream) -> proc_macro::TokenStream
     let expanded = quote! {
         match app {
             #cases
-            _ => return get_response!(StatusCode::NOT_FOUND, NOTFOUND),
+            _ => { return get_response(StatusCode::NOT_FOUND, &NOTFOUND, &labels, &start_time, &req_size); },
         }
     };
 

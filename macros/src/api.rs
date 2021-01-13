@@ -86,7 +86,7 @@ fn check_field(name: &str, value: &str) -> Result<String, String> {
             Err(_) => Err(format!("unknown mode: {}", value)),
         },
         "forward_path" => {
-            if value.len() == 0 {
+            if value.is_empty() {
                 return Ok(value.to_string());
             }
             if !value.starts_with('/') {
