@@ -200,6 +200,7 @@ fn handle_prefixed(
             let forward_request = get_forward_request(api, Some(full_path), Some(method));
             simple_cases.extend(quote! {
                 (#path, #method) => {
+                    println!("match '{}'", #path);
                     #forward_request
                 },
             });
@@ -227,6 +228,7 @@ fn handle_prefixed(
         match &forwarded_path[#prefix_len..].find('/') {
             Some(0) => { return get_response(StatusCode::NOT_FOUND, &NOTFOUND, &labels, &start_time, &req_size); },
             Some(slash_index) => {
+                println!("skipping '{}'", &forwarded_path[#prefix_len..#prefix_len + slash_index.to_owned()]);
                 forwarded_path = &forwarded_path[#prefix_len + slash_index..];
                 match (forwarded_path, method_str) {
                     #cases
@@ -251,6 +253,7 @@ fn generate_case_path_tree(
                 let forward_request = get_forward_request(api, Some(full_path), Some(method));
                 tokens.extend(quote! {
                     (#path, #method) => {
+                        println!("match '{}'", #path);
                         #forward_request
                     },
                 });
@@ -269,6 +272,7 @@ fn generate_case_path_tree(
             );
             let mut partial = quote! {
                 if forwarded_path.starts_with(#prefix) {
+                    println!("match (start with '{}') '{}'", #prefix, forwarded_path);
                     #prefixed_paths
                 }
             };
@@ -301,6 +305,7 @@ fn generate_forward_strict(api: &Api) -> TokenStream {
     let (cases, partial) = generate_case_path_tree(&paths, &api);
     quote! {
         #app_name => {
+            println!("match {} => ({}, {})", #app_name, forwarded_path, method_str);
             match (forwarded_path, method_str) {
                 #cases
                 _ => (),

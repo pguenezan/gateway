@@ -261,6 +261,7 @@ async fn response(mut req: Request<Body>, client: Client<HttpConnector>) -> Resu
 
     let authorization = match req.headers().get(AUTHORIZATION) {
         None => {
+            println!("no Authorization header");
             return get_response(
                 StatusCode::FORBIDDEN,
                 &FORBIDDEN,
@@ -270,7 +271,8 @@ async fn response(mut req: Request<Body>, client: Client<HttpConnector>) -> Resu
             );
         }
         Some(authorization) => match authorization.to_str() {
-            Err(_) => {
+            Err(e) => {
+                println!("error: {:#?}", e);
                 return get_response(
                     StatusCode::FORBIDDEN,
                     &FORBIDDEN,
@@ -285,6 +287,7 @@ async fn response(mut req: Request<Body>, client: Client<HttpConnector>) -> Resu
     let (claims, token_type) = match get_claims(authorization).await {
         Some(claims) => claims,
         None => {
+            println!("no claims");
             return get_response(
                 StatusCode::FORBIDDEN,
                 &FORBIDDEN,
