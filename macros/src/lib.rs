@@ -221,6 +221,7 @@ fn handle_prefixed(
     let (cases, partial) = generate_case_path_tree(&reaming_path, api);
 
     quote! {
+        println!("matching '{}'", &forwarded_path[#prefix_len..]);
         match (&forwarded_path[#prefix_len..], method_str) {
             #simple_cases
             _ => (),
@@ -228,7 +229,7 @@ fn handle_prefixed(
         match &forwarded_path[#prefix_len..].find('/') {
             Some(0) => { return get_response(StatusCode::NOT_FOUND, &NOTFOUND, &labels, &start_time, &req_size); },
             Some(slash_index) => {
-                println!("skipping '{}'", &forwarded_path[#prefix_len..#prefix_len + slash_index.to_owned()]);
+                println!("skipping '{}' matching '{}'", &forwarded_path[#prefix_len..#prefix_len + slash_index.to_owned()], &forwarded_path[#prefix_len + slash_index..]);
                 forwarded_path = &forwarded_path[#prefix_len + slash_index..];
                 match (forwarded_path, method_str) {
                     #cases

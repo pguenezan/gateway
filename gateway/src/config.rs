@@ -1,74 +1,59 @@
 gateway_config! {
     [
         Api {
-            app_name: "/foo_bar",
-            host: "127.0.0.1:8000",
-            mode: "forward_all",
-            forward_path: "",
-        },
-        Api {
-            app_name: "/misc",
-            host: "127.0.0.1:8001",
+            app_name: "/phrit",
+            host: "phrit-prod-phrit:80",
+            forward_path: "/phrit",
             mode: "forward_strict",
-            forward_path: "/misc",
             endpoints: [
                 Endpoint {
-                    path: "/i_shoud_exist/",
-                    method: "POST",
-                    chain_to: [
-                        "/misc/this_shoud_be_post/",
-                        "/misc/report/",
-                    ],
-                },
-                Endpoint {
-                    path: "/this_shoud_be_post/",
-                    method: "POST",
-                },
-                Endpoint {
-                    path: "/report.{format}/",
+                    path: "/values/",
                     method: "GET",
                 },
                 Endpoint {
-                    path: "/report/",
+                    path: "/{output}/{source}/ligne/",
+                    method: "GET",
+                },
+                Endpoint {
+                    path: "/{output}/{source}/pointremarquable/",
+                    method: "GET",
+                },
+                Endpoint {
+                    path: "/events/{id}/prediction/feedbacks/",
                     method: "POST",
                 },
                 Endpoint {
-                    path: "/report.{format}/view/",
+                    path: "/ligne/",
                     method: "GET",
                 },
                 Endpoint {
-                    path: "/report.{format}/edit/{user}/mail/",
+                    path: "/pointremarquable/eic/",
                     method: "GET",
                 },
                 Endpoint {
-                    path: "/report.{format}/edit/{user}/name/",
+                    path: "/events/{id}/prediction/feedbacks/{feedback_id}/",
                     method: "GET",
                 },
                 Endpoint {
-                    path: "/report./",
+                    path: "/events/{id}/prediction/feedbacks/",
                     method: "GET",
                 },
                 Endpoint {
-                    path: "/user/",
+                    path: "/events/{id}/prediction/",
                     method: "GET",
                 },
                 Endpoint {
-                    path: "/user/delete_all/yes/",
-                    method: "GET",
-                },
-                Endpoint {
-                    path: "/user/{id}/",
-                    method: "GET",
-                },
-                Endpoint {
-                    path: "/alone/{i_am}/",
-                    method: "GET",
-                },
-                Endpoint {
-                    path: "/",
+                    path: "/events/",
                     method: "GET",
                 },
             ],
         },
+        Api {
+            app_name: "/portal",
+            host: "portal-configured-master-portal-configured:80",
+            forward_path: "",
+            mode: "forward_all",
+        },
     ]
 }
+
