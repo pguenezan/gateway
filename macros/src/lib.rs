@@ -188,6 +188,18 @@ fn filter_prefix(
     filtered
 }
 
+fn partial_to_token(mut partial: Vec<(String, TokenStream)>) -> TokenStream {
+    partial.sort_by(|(prefix_a, _), (prefix_b, _)| {
+        prefix_b.len().partial_cmp(&prefix_a.len()).unwrap()
+    });
+    partial
+        .iter()
+        .fold(TokenStream::new(), |mut acc, (_, case)| {
+            acc.extend(case.clone().into_iter());
+            acc
+        })
+}
+
 fn handle_prefixed(
     paths: &HashSet<(String, String, String)>,
     prefix_len: usize,
@@ -219,6 +231,7 @@ fn handle_prefixed(
     }
 
     let (cases, partial) = generate_case_path_tree(&reaming_path, api);
+    let partial_cases = partial_to_token(partial);
 
     quote! {
         println!("matching '{}'", &forwarded_path[#prefix_len..]);
@@ -235,7 +248,7 @@ fn handle_prefixed(
                     #cases
                     _ => (),
                 };
-                #partial
+                #partial_cases
                 return get_response(StatusCode::NOT_FOUND, &NOTFOUND, &labels, &start_time, &req_size);
             },
             None => { return get_response(StatusCode::NOT_FOUND, &NOTFOUND, &labels, &start_time, &req_size); },
@@ -246,7 +259,7 @@ fn handle_prefixed(
 fn generate_case_path_tree(
     paths: &HashSet<(String, String, String)>,
     api: &Api,
-) -> (TokenStream, TokenStream) {
+) -> (TokenStream, Vec<(String, TokenStream)>) {
     match filter_common_paths(paths) {
         None => {
             let mut tokens = TokenStream::new();
@@ -259,26 +272,26 @@ fn generate_case_path_tree(
                     },
                 });
             }
-            (tokens, TokenStream::new())
+            (tokens, Vec::new())
         }
         Some((prefix, common_paths)) => {
             let prefixed_paths =
                 handle_prefixed(&filter_prefix(&prefix, &common_paths), prefix.len(), api);
-            let (recursion_cases, recursion_partial) = generate_case_path_tree(
+            let (recursion_cases, mut recursion_partial) = generate_case_path_tree(
                 &paths
                     .difference(&common_paths)
                     .map(|(p, f, m)| (p.to_string(), f.to_string(), m.to_string()))
                     .collect(),
                 api,
             );
-            let mut partial = quote! {
+            let partial = quote! {
                 if forwarded_path.starts_with(#prefix) {
                     println!("match (start with '{}') '{}'", #prefix, forwarded_path);
                     #prefixed_paths
                 }
             };
-            partial.extend(recursion_partial);
-            (recursion_cases, partial)
+            recursion_partial.push((prefix, partial));
+            (recursion_cases, recursion_partial)
         }
     }
 }
@@ -304,6 +317,7 @@ fn generate_forward_strict(api: &Api) -> TokenStream {
         ));
     }
     let (cases, partial) = generate_case_path_tree(&paths, &api);
+    let partial_cases = partial_to_token(partial);
     quote! {
         #app_name => {
             println!("match {} => ({}, {})", #app_name, forwarded_path, method_str);
@@ -311,7 +325,7 @@ fn generate_forward_strict(api: &Api) -> TokenStream {
                 #cases
                 _ => (),
             };
-            #partial
+            #partial_cases
             return get_response(StatusCode::NOT_FOUND, &NOTFOUND, &labels, &start_time, &req_size);
         },
     }
