@@ -1,5 +1,5 @@
-use std::collections::{HashMap, HashSet};
 use std::cmp;
+use std::collections::{HashMap, HashSet};
 use std::iter;
 
 use proc_macro2::TokenStream;
@@ -58,6 +58,36 @@ fn get_forward_request(
 
     let check_perm = get_permission_check(api, full_path, method_str);
     let role_prefix = format!("{}::roles::", api.app_name);
+    let app_name = &api.app_name;
+
+    let commit = match (full_path, method_str) {
+        (None, None) => quote! {
+            commit_metrics(&labels, &start_time, response.status(), &req_size, &response.size_hint());
+        },
+        (Some(full_path), Some(method_str)) => quote! {
+            let local_labels = [#app_name, #full_path, #method_str];
+            println!("local_labels = {:?}", local_labels);
+            commit_metrics(&local_labels, &start_time, response.status(), &req_size, &response.size_hint());
+        },
+        (_, _) => {
+            panic!("wrong number of arguments");
+        }
+    };
+
+    let bad_gateway = match (full_path, method_str) {
+        (None, None) => quote! {
+            return get_response(StatusCode::BAD_GATEWAY, &BADGATEWAY, &labels, &start_time, &req_size);
+        },
+        (Some(full_path), Some(method_str)) => quote! {
+            let local_labels = [#app_name, #full_path, #method_str];
+            return get_response(StatusCode::BAD_GATEWAY, &BADGATEWAY, &local_labels, &start_time, &req_size);
+        },
+        (_, _) => {
+            panic!("wrong number of arguments");
+        }
+    };
+
+    println!("commit = {}", commit);
 
     quote! {
         #check_perm
@@ -71,12 +101,12 @@ fn get_forward_request(
         match client.request(req).await {
             Ok(mut response) => {
                 inject_cors(response.headers_mut());
-                commit_metrics(&labels, &start_time, response.status(), &req_size, &response.size_hint());
+                #commit
                 return Ok(response)
             },
             Err(error) => {
                 println!("502 for {}: {:?}", uri_string, error);
-                return get_response(StatusCode::BAD_GATEWAY, &BADGATEWAY, &labels, &start_time, &req_size);
+                #bad_gateway
             },
         }
     }
@@ -179,7 +209,7 @@ fn get_common_prefix(paths: &Vec<&str>) -> Option<String> {
                 return None;
             }
             Some(first[..prefix_size].to_string())
-        },
+        }
     }
 }
 
@@ -210,7 +240,11 @@ fn get_next_prefix(path: &str) -> &str {
     }
 }
 
-fn handle_no_common_prefix(paths: &HashSet<(String, String, String)>, api: &Api, depth: usize) -> TokenStream {
+fn handle_no_common_prefix(
+    paths: &HashSet<(String, String, String)>,
+    api: &Api,
+    depth: usize,
+) -> TokenStream {
     let mut output = TokenStream::new();
     let shift: String = iter::repeat(" ").take(depth).collect();
     for (path, _, _) in paths {
@@ -221,16 +255,24 @@ fn handle_no_common_prefix(paths: &HashSet<(String, String, String)>, api: &Api,
             for (path_to_select, full_path, method) in paths {
                 if path_to_select == next_prefix {
                     let forward_request = get_forward_request(api, Some(full_path), Some(method));
-                    output.extend(quote!{
+                    output.extend(quote! {
                         if forwarded_path == #path_to_select && method_str == #method {
                             println!("{}match full '{}'", #shift, #path_to_select);
                             #forward_request
                         }
                     });
                 } else if path_to_select.starts_with(next_prefix) {
-                    prefixed_paths.insert((path_to_select[next_prefix.len()..].to_string(), full_path.to_string(), method.to_string()));
+                    prefixed_paths.insert((
+                        path_to_select[next_prefix.len()..].to_string(),
+                        full_path.to_string(),
+                        method.to_string(),
+                    ));
                 } else {
-                    reaming_paths.insert((path_to_select.to_string(), full_path.to_string(), method.to_string()));
+                    reaming_paths.insert((
+                        path_to_select.to_string(),
+                        full_path.to_string(),
+                        method.to_string(),
+                    ));
                 }
             }
             if prefixed_paths.len() != 0 {
@@ -254,9 +296,16 @@ fn handle_no_common_prefix(paths: &HashSet<(String, String, String)>, api: &Api,
     for (path, full_path, method) in paths {
         let skip_size = path.find("/").unwrap();
         if !has_param_at_start(path) {
-            panic!("`{} `(part of `{}`) should starts with a capture", path, full_path);
+            panic!(
+                "`{} `(part of `{}`) should starts with a capture",
+                path, full_path
+            );
         }
-        new_paths.insert((path[skip_size..].to_string(), full_path.to_string(), method.to_string()));
+        new_paths.insert((
+            path[skip_size..].to_string(),
+            full_path.to_string(),
+            method.to_string(),
+        ));
     }
     let reaming = generate_case_path_tree_test(&new_paths, api, depth + 2);
     let rest_of_path = &paths.iter().next().unwrap().0;
@@ -275,7 +324,11 @@ fn handle_no_common_prefix(paths: &HashSet<(String, String, String)>, api: &Api,
     output
 }
 
-fn generate_case_path_tree_test(paths: &HashSet<(String, String, String)>, api: &Api, depth: usize) -> TokenStream {
+fn generate_case_path_tree_test(
+    paths: &HashSet<(String, String, String)>,
+    api: &Api,
+    depth: usize,
+) -> TokenStream {
     let mut output = TokenStream::new();
     if paths.len() == 0 {
         return output;
@@ -286,13 +339,13 @@ fn generate_case_path_tree_test(paths: &HashSet<(String, String, String)>, api: 
     match get_common_prefix(&trunc_paths) {
         None => {
             output.extend(handle_no_common_prefix(paths, api, depth));
-        },
+        }
         Some(common_prefix) => {
             let mut new_paths = HashSet::new();
             for (path, full_path, method) in paths {
                 if &common_prefix == path {
                     let forward_request = get_forward_request(api, Some(full_path), Some(method));
-                    output.extend(quote!{
+                    output.extend(quote! {
                         if forwarded_path == #path && method_str == #method {
                             println!("{}match full '{}'", #shift, #path);
                             #forward_request
@@ -300,7 +353,11 @@ fn generate_case_path_tree_test(paths: &HashSet<(String, String, String)>, api: 
                     });
                     continue;
                 }
-                new_paths.insert((path[common_prefix.len()..].to_string(), full_path.to_string(), method.to_string()));
+                new_paths.insert((
+                    path[common_prefix.len()..].to_string(),
+                    full_path.to_string(),
+                    method.to_string(),
+                ));
             }
             if new_paths.len() != 0 {
                 let reaming = handle_no_common_prefix(&new_paths, api, depth + 2);
@@ -313,7 +370,7 @@ fn generate_case_path_tree_test(paths: &HashSet<(String, String, String)>, api: 
                     }
                 });
             }
-        },
+        }
     }
     output
 }
@@ -377,8 +434,6 @@ pub fn gateway_config(input: proc_macro::TokenStream) -> proc_macro::TokenStream
             ApiMode::ForwardAll => generate_forward_all(&api),
         });
     }
-
-    // println!("{}", cases);
 
     let expanded = quote! {
         match app {

@@ -58,7 +58,9 @@ fn check_for_params(path: &str) -> Result<(), String> {
                 content, preceded, succeed, path
             ));
         }
-        mut_path = match_param.replace(&format!("{{{}}}", &content), "").to_string();
+        mut_path = match_param
+            .replace(&format!("{{{}}}", &content), "")
+            .to_string();
     }
     if mut_path.contains('{') || mut_path.contains('}') {
         return Err(format!("path: `{}` contains/is missing `{{` or `}}`", path));
