@@ -1,4 +1,6 @@
 use std::collections::{HashMap, HashSet};
+use std::cmp;
+use std::iter;
 
 use proc_macro2::TokenStream;
 use quote::quote;
@@ -149,153 +151,6 @@ fn check_for_conflicts(api: &Api) -> Result<(), String> {
     Ok(())
 }
 
-fn filter_common_paths(
-    paths: &HashSet<(String, String, String)>,
-) -> Option<(String, HashSet<(String, String, String)>)> {
-    let has_param = Regex::new("\\{[^/]*\\}").unwrap();
-    for (path, _, _) in paths {
-        if has_param.is_match(path) {
-            let mut common_paths = HashSet::new();
-            let prefix = &path[..has_param.find(path).unwrap().start()];
-            for (other_path, full_path, method) in paths {
-                if other_path.starts_with(prefix) {
-                    common_paths.insert((
-                        other_path.to_string(),
-                        full_path.to_string(),
-                        method.to_string(),
-                    ));
-                }
-            }
-            return Some((prefix.to_string(), common_paths));
-        }
-    }
-    None
-}
-
-fn filter_prefix(
-    prefix: &str,
-    paths: &HashSet<(String, String, String)>,
-) -> HashSet<(String, String, String)> {
-    let mut filtered = HashSet::new();
-    for (path, full_path, method) in paths {
-        let suffix = &path[prefix.len()..];
-        filtered.insert((
-            suffix.to_string(),
-            full_path.to_string(),
-            method.to_string(),
-        ));
-    }
-    filtered
-}
-
-fn partial_to_token(mut partial: Vec<(String, TokenStream)>) -> TokenStream {
-    partial.sort_by(|(prefix_a, _), (prefix_b, _)| {
-        prefix_b.len().partial_cmp(&prefix_a.len()).unwrap()
-    });
-    partial
-        .iter()
-        .fold(TokenStream::new(), |mut acc, (_, case)| {
-            acc.extend(case.clone().into_iter());
-            acc
-        })
-}
-
-fn handle_prefixed(
-    paths: &HashSet<(String, String, String)>,
-    prefix_len: usize,
-    api: &Api,
-) -> TokenStream {
-    let has_capture_first = Regex::new("^\\{[^/]*\\}").unwrap();
-    let mut simple_cases = TokenStream::new();
-    for (path, full_path, method) in paths {
-        if !has_capture_first.is_match(&path) {
-            let forward_request = get_forward_request(api, Some(full_path), Some(method));
-            simple_cases.extend(quote! {
-                (#path, #method) => {
-                    println!("match '{}'", #path);
-                    #forward_request
-                },
-            });
-        }
-    }
-
-    let mut reaming_path = HashSet::new();
-    for (path, full_path, method) in paths {
-        if has_capture_first.is_match(&path) {
-            reaming_path.insert((
-                path[has_capture_first.find(path).unwrap().end()..].to_string(),
-                full_path.to_string(),
-                method.to_string(),
-            ));
-        }
-    }
-
-    let (cases, partial) = generate_case_path_tree(&reaming_path, api);
-    let partial_cases = partial_to_token(partial);
-
-    quote! {
-        println!("matching '{}'", &forwarded_path[#prefix_len..]);
-        match (&forwarded_path[#prefix_len..], method_str) {
-            #simple_cases
-            _ => (),
-        };
-        match &forwarded_path[#prefix_len..].find('/') {
-            Some(0) => { return get_response(StatusCode::NOT_FOUND, &NOTFOUND, &labels, &start_time, &req_size); },
-            Some(slash_index) => {
-                println!("skipping '{}' matching '{}'", &forwarded_path[#prefix_len..#prefix_len + slash_index.to_owned()], &forwarded_path[#prefix_len + slash_index..]);
-                forwarded_path = &forwarded_path[#prefix_len + slash_index..];
-                match (forwarded_path, method_str) {
-                    #cases
-                    _ => (),
-                };
-                #partial_cases
-                return get_response(StatusCode::NOT_FOUND, &NOTFOUND, &labels, &start_time, &req_size);
-            },
-            None => { return get_response(StatusCode::NOT_FOUND, &NOTFOUND, &labels, &start_time, &req_size); },
-        }
-    }
-}
-
-fn generate_case_path_tree(
-    paths: &HashSet<(String, String, String)>,
-    api: &Api,
-) -> (TokenStream, Vec<(String, TokenStream)>) {
-    match filter_common_paths(paths) {
-        None => {
-            let mut tokens = TokenStream::new();
-            for (path, full_path, method) in paths {
-                let forward_request = get_forward_request(api, Some(full_path), Some(method));
-                tokens.extend(quote! {
-                    (#path, #method) => {
-                        println!("match '{}'", #path);
-                        #forward_request
-                    },
-                });
-            }
-            (tokens, Vec::new())
-        }
-        Some((prefix, common_paths)) => {
-            let prefixed_paths =
-                handle_prefixed(&filter_prefix(&prefix, &common_paths), prefix.len(), api);
-            let (recursion_cases, mut recursion_partial) = generate_case_path_tree(
-                &paths
-                    .difference(&common_paths)
-                    .map(|(p, f, m)| (p.to_string(), f.to_string(), m.to_string()))
-                    .collect(),
-                api,
-            );
-            let partial = quote! {
-                if forwarded_path.starts_with(#prefix) {
-                    println!("match (start with '{}') '{}'", #prefix, forwarded_path);
-                    #prefixed_paths
-                }
-            };
-            recursion_partial.push((prefix, partial));
-            (recursion_cases, recursion_partial)
-        }
-    }
-}
-
 fn generate_forward_all(api: &Api) -> TokenStream {
     let app_name = &api.app_name;
     let forward_request = get_forward_request(&api, None, None);
@@ -304,6 +159,163 @@ fn generate_forward_all(api: &Api) -> TokenStream {
             #forward_request
         },
     }
+}
+
+fn get_prefix_size(a: &str, b: &str) -> usize {
+    a.chars().zip(b.chars()).take_while(|(x, y)| x == y).count()
+}
+
+fn get_common_prefix(paths: &Vec<&str>) -> Option<String> {
+    match paths.len() {
+        0 => None,
+        1 => Some(paths[0].to_string()),
+        _ => {
+            let first = &paths[0];
+            let mut prefix_size = first.len();
+            for path in &paths[1..] {
+                prefix_size = cmp::min(prefix_size, get_prefix_size(first, path));
+            }
+            if prefix_size == 0 {
+                return None;
+            }
+            Some(first[..prefix_size].to_string())
+        },
+    }
+}
+
+fn get_trunc_path(paths: &HashSet<(String, String, String)>) -> Vec<&str> {
+    let has_param = Regex::new("\\{[^/]*\\}").unwrap();
+    let mut trunc_paths = Vec::new();
+    for (path, _, _) in paths {
+        if has_param.is_match(path) {
+            let prefix = &path[..has_param.find(path).unwrap().start()];
+            trunc_paths.push(prefix);
+        } else {
+            trunc_paths.push(&path);
+        }
+    }
+    trunc_paths
+}
+
+fn has_param_at_start(path: &str) -> bool {
+    let has_param_at_start = Regex::new("^\\{[^/]*\\}").unwrap();
+    has_param_at_start.is_match(path)
+}
+
+fn get_next_prefix(path: &str) -> &str {
+    let has_param = Regex::new("\\{[^/]*\\}").unwrap();
+    match has_param.is_match(path) {
+        true => &path[..has_param.find(path).unwrap().start()],
+        false => path,
+    }
+}
+
+fn handle_no_common_prefix(paths: &HashSet<(String, String, String)>, api: &Api, depth: usize) -> TokenStream {
+    let mut output = TokenStream::new();
+    let shift: String = iter::repeat(" ").take(depth).collect();
+    for (path, _, _) in paths {
+        if !has_param_at_start(path) {
+            let next_prefix = get_next_prefix(path);
+            let mut prefixed_paths = HashSet::new();
+            let mut reaming_paths = HashSet::new();
+            for (path_to_select, full_path, method) in paths {
+                if path_to_select == next_prefix {
+                    let forward_request = get_forward_request(api, Some(full_path), Some(method));
+                    output.extend(quote!{
+                        if forwarded_path == #path_to_select && method_str == #method {
+                            println!("{}match full '{}'", #shift, #path_to_select);
+                            #forward_request
+                        }
+                    });
+                } else if path_to_select.starts_with(next_prefix) {
+                    prefixed_paths.insert((path_to_select[next_prefix.len()..].to_string(), full_path.to_string(), method.to_string()));
+                } else {
+                    reaming_paths.insert((path_to_select.to_string(), full_path.to_string(), method.to_string()));
+                }
+            }
+            if prefixed_paths.len() != 0 {
+                let reaming = handle_no_common_prefix(&prefixed_paths, api, depth + 2);
+                output.extend(quote!{
+                    if forwarded_path.starts_with(#next_prefix) {
+                        println!("{}match '{}'", #shift, #next_prefix);
+                        forwarded_path = &forwarded_path[#next_prefix.len()..];
+                        #reaming
+                        return get_response(StatusCode::NOT_FOUND, &NOTFOUND, &labels, &start_time, &req_size);
+                    }
+                });
+            }
+            if reaming_paths.len() != 0 {
+                output.extend(generate_case_path_tree_test(&reaming_paths, api, depth));
+            }
+            return output;
+        }
+    }
+    let mut new_paths = HashSet::new();
+    for (path, full_path, method) in paths {
+        let skip_size = path.find("/").unwrap();
+        if !has_param_at_start(path) {
+            panic!("`{} `(part of `{}`) should starts with a capture", path, full_path);
+        }
+        new_paths.insert((path[skip_size..].to_string(), full_path.to_string(), method.to_string()));
+    }
+    let reaming = generate_case_path_tree_test(&new_paths, api, depth + 2);
+    let rest_of_path = &paths.iter().next().unwrap().0;
+    output.extend(quote!{
+        match forwarded_path.find('/') {
+            Some(0) => { return get_response(StatusCode::NOT_FOUND, &NOTFOUND, &labels, &start_time, &req_size); },
+            Some(slash_index) => {
+                println!("{}skipping until '/' (for capture of '{}'", #shift, #rest_of_path);
+                forwarded_path = &forwarded_path[slash_index..];
+                #reaming
+                return get_response(StatusCode::NOT_FOUND, &NOTFOUND, &labels, &start_time, &req_size);
+            },
+            None => { return get_response(StatusCode::NOT_FOUND, &NOTFOUND, &labels, &start_time, &req_size); },
+        }
+    });
+    output
+}
+
+fn generate_case_path_tree_test(paths: &HashSet<(String, String, String)>, api: &Api, depth: usize) -> TokenStream {
+    let mut output = TokenStream::new();
+    if paths.len() == 0 {
+        return output;
+    }
+
+    let shift: String = iter::repeat(" ").take(depth).collect();
+    let trunc_paths = &get_trunc_path(paths);
+    match get_common_prefix(&trunc_paths) {
+        None => {
+            output.extend(handle_no_common_prefix(paths, api, depth));
+        },
+        Some(common_prefix) => {
+            let mut new_paths = HashSet::new();
+            for (path, full_path, method) in paths {
+                if &common_prefix == path {
+                    let forward_request = get_forward_request(api, Some(full_path), Some(method));
+                    output.extend(quote!{
+                        if forwarded_path == #path && method_str == #method {
+                            println!("{}match full '{}'", #shift, #path);
+                            #forward_request
+                        }
+                    });
+                    continue;
+                }
+                new_paths.insert((path[common_prefix.len()..].to_string(), full_path.to_string(), method.to_string()));
+            }
+            if new_paths.len() != 0 {
+                let reaming = handle_no_common_prefix(&new_paths, api, depth + 2);
+                output.extend(quote!{
+                    if forwarded_path.starts_with(#common_prefix) {
+                        println!("{}match '{}'", #shift, #common_prefix);
+                        forwarded_path = &forwarded_path[#common_prefix.len()..];
+                        #reaming
+                        return get_response(StatusCode::NOT_FOUND, &NOTFOUND, &labels, &start_time, &req_size);
+                    }
+                });
+            }
+        },
+    }
+    output
 }
 
 fn generate_forward_strict(api: &Api) -> TokenStream {
@@ -316,16 +328,11 @@ fn generate_forward_strict(api: &Api) -> TokenStream {
             endpoint.method.clone(),
         ));
     }
-    let (cases, partial) = generate_case_path_tree(&paths, &api);
-    let partial_cases = partial_to_token(partial);
+    let cases = generate_case_path_tree_test(&paths, &api, 2);
     quote! {
         #app_name => {
             println!("match {} => ({}, {})", #app_name, forwarded_path, method_str);
-            match (forwarded_path, method_str) {
-                #cases
-                _ => (),
-            };
-            #partial_cases
+            #cases
             return get_response(StatusCode::NOT_FOUND, &NOTFOUND, &labels, &start_time, &req_size);
         },
     }
@@ -370,6 +377,8 @@ pub fn gateway_config(input: proc_macro::TokenStream) -> proc_macro::TokenStream
             ApiMode::ForwardAll => generate_forward_all(&api),
         });
     }
+
+    // println!("{}", cases);
 
     let expanded = quote! {
         match app {

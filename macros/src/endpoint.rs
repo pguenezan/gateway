@@ -39,18 +39,26 @@ fn expr_to_str(expr: &Expr) -> String {
 }
 
 fn check_for_params(path: &str) -> Result<(), String> {
-    let match_param = Regex::new("\\{[^/]+\\}").unwrap();
+    let match_param = Regex::new("(.?)\\{([^/]+)\\}(.?)").unwrap();
     let mut mut_path: String = path.to_string();
     while match_param.is_match(&mut_path) {
-        let mut param = match_param.find(&mut_path).unwrap().as_str();
-        param = &param[1..param.len() - 2];
-        if param.contains('{') || param.contains('}') {
+        let captures = match_param.captures(&mut_path).unwrap();
+        let content = captures.get(2).unwrap().as_str();
+        if content.contains('{') || content.contains('}') {
             return Err(format!(
                 "param: `{}` contains `{{` or `}}` in path `{}`",
-                param, path
+                content, path
             ));
         }
-        mut_path = match_param.replace(&mut_path, "").to_string();
+        let preceded = captures.get(1).unwrap().as_str();
+        let succeed = captures.get(3).unwrap().as_str();
+        if preceded != "/" || succeed != "/" {
+            return Err(format!(
+                "param: `{}` must be preceded and succeed by `/` not (`{}`, `{}`) in path `{}`",
+                content, preceded, succeed, path
+            ));
+        }
+        mut_path = match_param.replace(&format!("{{{}}}", &content), "").to_string();
     }
     if mut_path.contains('{') || mut_path.contains('}') {
         return Err(format!("path: `{}` contains/is missing `{{` or `}}`", path));

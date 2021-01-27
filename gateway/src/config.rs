@@ -31,6 +31,14 @@ gateway_config! {
                     method: "GET",
                 },
                 Endpoint {
+                    path: "/events/",
+                    method: "GET",
+                },
+                Endpoint {
+                    path: "/events/{id}/prediction/",
+                    method: "GET",
+                },
+                Endpoint {
                     path: "/events/{id}/prediction/feedbacks/{feedback_id}/",
                     method: "GET",
                 },
@@ -39,11 +47,11 @@ gateway_config! {
                     method: "GET",
                 },
                 Endpoint {
-                    path: "/events/{id}/prediction/",
+                    path: "/{output}/{source}/pointremarquable/{z}/{x}/{y}/",
                     method: "GET",
                 },
                 Endpoint {
-                    path: "/events/",
+                    path: "/{output}/{source}/ligne/{z}/{x}/{y}/",
                     method: "GET",
                 },
             ],
