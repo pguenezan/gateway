@@ -155,6 +155,7 @@ fn inject_headers(
     role_prefix: &str,
     token_type: &str,
 ) {
+    println!("role_prefix: '{}'", role_prefix);
     if cfg!(feature = "remove_authorization_header") {
         headers.remove("Authorization");
     }

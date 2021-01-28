@@ -57,7 +57,7 @@ fn get_forward_request(
     let host = format!("http://{}{}/", &api.host, &api.forward_path);
 
     let check_perm = get_permission_check(api, full_path, method_str);
-    let role_prefix = format!("{}::roles::", api.app_name);
+    let role_prefix = format!("{}::roles::", &api.app_name[1..]);
     let app_name = &api.app_name;
 
     let commit = match (full_path, method_str) {
@@ -86,8 +86,6 @@ fn get_forward_request(
             panic!("wrong number of arguments");
         }
     };
-
-    println!("commit = {}", commit);
 
     quote! {
         #check_perm
