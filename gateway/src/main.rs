@@ -2,6 +2,15 @@ use std::env;
 use std::net::SocketAddr;
 use std::process::exit;
 use std::time::Instant;
+use std::collections::{HashSet, HashMap};
+
+use regex::Regex;
+
+use std::sync::Arc;
+use tokio::sync::RwLock;
+
+use serde::Deserialize;
+use bytes::Buf as _;
 
 use http_body::SizeHint;
 use hyper::body::HttpBody;
@@ -11,7 +20,7 @@ use hyper::header::{
     ACCESS_CONTROL_ALLOW_ORIGIN, AUTHORIZATION, CONTENT_TYPE,
 };
 use hyper::service::{make_service_fn, service_fn};
-use hyper::{Body, Client, HeaderMap, Method, Request, Response, Server, StatusCode};
+use hyper::{Body, Client, HeaderMap, Method, Request, Response, Server, StatusCode, Uri};
 
 use lazy_static::lazy_static;
 
@@ -152,14 +161,13 @@ fn inject_cors(headers: &mut HeaderMap<HeaderValue>) {
 fn inject_headers(
     headers: &mut HeaderMap<HeaderValue>,
     claims: &Claims,
-    role_prefix: &str,
+    app_user_roles: &str,
     token_type: &str,
 ) {
-    println!("role_prefix: '{}'", role_prefix);
     if cfg!(feature = "remove_authorization_header") {
         headers.remove("Authorization");
     }
-    if let Ok(value) = claims.sub.parse() {
+    if let Ok(value) = claims.token_id.parse() {
         headers.insert("X-Forwarded-User", value);
     };
     if let Ok(value) = claims.preferred_username.parse() {
@@ -174,14 +182,7 @@ fn inject_headers(
     if let Ok(value) = claims.email.parse() {
         headers.insert("X-Forwarded-User-Email", value);
     }
-    let roles = claims
-        .roles
-        .iter()
-        .filter(|role| role.starts_with(role_prefix))
-        .map(|role| &role[role_prefix.len()..])
-        .collect::<Vec<&str>>()
-        .join(",");
-    if let Ok(value) = roles.parse() {
+    if let Ok(value) = app_user_roles.parse() {
         headers.insert("X-Forwarded-User-Roles", value);
     }
     if let Ok(value) = token_type.parse() {
@@ -214,7 +215,7 @@ async fn health() -> Result<Response<Body>> {
         .unwrap())
 }
 
-async fn response(mut req: Request<Body>, client: Client<HttpConnector>) -> Result<Response<Body>> {
+async fn response(mut req: Request<Body>, client: Client<HttpConnector>, perm_lock: Arc<RwLock<HashMap<String, HashSet<String>>>>, role_lock: Arc<RwLock<HashMap<String, HashMap<String, String>>>>) -> Result<Response<Body>> {
     match req.uri().path() {
         "/metrics" => {
             return metrics().await;
@@ -319,8 +320,97 @@ async fn response(mut req: Request<Body>, client: Client<HttpConnector>) -> Resu
     include!("config.rs")
 }
 
+#[derive(Deserialize, Debug)]
+struct Perm {
+    role_name: String,
+    user_id: HashSet<String>,
+}
+
+async fn get_perm(perm_uri: Uri, perm_token_uri: Uri) -> Result<(HashMap<String, HashSet<String>>, HashMap<String, HashMap<String, String>>)> {
+    let client = Client::new();
+
+    let res = client.get(perm_uri).await?;
+    let body = hyper::body::aggregate(res).await?;
+    let mut perm_vec: Vec<Perm> = serde_json::from_reader(body.reader())?;
+
+    let res_token = client.get(perm_token_uri).await?;
+    let body_token = hyper::body::aggregate(res_token).await?;
+    let mut perm_token_vec: Vec<Perm> = serde_json::from_reader(body_token.reader())?;
+    perm_vec.append(&mut perm_token_vec);
+
+    let mut perm_hm = HashMap::new();
+    let is_role_perm = Regex::new("([^:]+)::roles::(.*)").unwrap();
+    let mut user_role = HashMap::new();
+
+    for perm in perm_vec.iter() {
+        if is_role_perm.is_match(&perm.role_name) {
+            let captures = is_role_perm.captures(&perm.role_name).unwrap();
+            let app_name = captures.get(1).unwrap().as_str();
+            let role_name = captures.get(2).unwrap().as_str();
+            for user_id in perm.user_id.iter() {
+                user_role.entry(user_id).or_insert(HashMap::new()).entry(app_name).or_insert(Vec::new()).push(role_name);
+            }
+        }
+        perm_hm.insert(perm.role_name.to_string(), perm.user_id.clone());
+    }
+
+    let mut user_role_final = HashMap::new();
+    for (user_sub, apps) in &user_role {
+        for (app_name, perms) in apps {
+            let perm_str = perms.iter().fold(String::new(), |acc, &perm| { acc + "," + perm });
+            user_role_final.entry(user_sub.to_string()).or_insert(HashMap::new()).insert(app_name.to_string(), perm_str[1..].to_string());
+        }
+    }
+    Ok((perm_hm, user_role_final))
+}
+
+use tokio::time::{sleep, Duration};
+async fn update_perm(perm_uri: &Uri, perm_token_uri: &Uri, perm_lock: Arc<RwLock<HashMap<String, HashSet<String>>>>, role_lock: Arc<RwLock<HashMap<String, HashMap<String, String>>>>) {
+    loop {
+        sleep(Duration::from_millis(30000)).await;
+        let (perm, role) = get_perm(perm_uri.clone(), perm_token_uri.clone()).await.unwrap();
+        {
+            let mut perm_write = perm_lock.write().await;
+            *perm_write = perm;
+        }
+        {
+            let mut role_write = role_lock.write().await;
+            *role_write = role;
+        }
+        println!("update perm");
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
+    let perm_uri = match env::var("PERM_URI") {
+        Ok(perm_uri) => match perm_uri.parse::<Uri>() {
+            Ok(perm_uri) => perm_uri,
+            Err(_) => {
+                eprintln!("PERM_URI is not valid");
+                exit(1);
+            },
+        },
+        Err(_) => {
+            eprintln!("missing PERM_URI from environment");
+            exit(1);
+        }
+    };
+
+    let perm_token_uri = match env::var("PERM_TOKEN_URI") {
+        Ok(perm_uri) => match perm_uri.parse::<Uri>() {
+            Ok(perm_uri) => perm_uri,
+            Err(_) => {
+                eprintln!("PERM_TOKEN_URI is not valid");
+                exit(1);
+            },
+        },
+        Err(_) => {
+            eprintln!("missing PERM_TOKEN_URI from environment");
+            exit(1);
+        }
+    };
+
     let bind_to = match env::var("BIND_TO") {
         Ok(bind_to) => bind_to,
         Err(_) => {
@@ -332,21 +422,30 @@ async fn main() -> Result<()> {
     let addr: SocketAddr = match bind_to.parse() {
         Ok(addr) => addr,
         Err(_) => {
-            eprintln!("BIND_TO is not a valid");
+            eprintln!("BIND_TO is not valid");
             exit(1);
         }
     };
+
+
+    let (perm, role) = get_perm(perm_uri.clone(), perm_token_uri.clone()).await.unwrap();
+    let perm_lock = Arc::new(RwLock::new(perm));
+    let role_lock = Arc::new(RwLock::new(role));
+
+    let update_perm = update_perm(&perm_uri, &perm_token_uri, perm_lock.clone(), role_lock.clone());
 
     // Share a `Client` with all `Service`s
     let client = Client::new();
 
     let make_service = make_service_fn(move |_| {
-        // Move a clone of `client` into the `make_service`.
+        // Move a clone of `client`, `perm_lock` and `role_lock` into the `make_service`.
         let client = client.clone();
+        let perm_lock = perm_lock.clone();
+        let role_lock = role_lock.clone();
         async {
             Ok::<_, GenericError>(service_fn(move |req| {
-                // Clone again to ensure that client outlives this closure.
-                response(req, client.to_owned())
+                // Clone again to ensure that `client`, `perm_lock` and `role_lock` outlives this closure.
+                response(req, client.to_owned(), perm_lock.clone(), role_lock.clone())
             }))
         }
     });
@@ -354,7 +453,15 @@ async fn main() -> Result<()> {
     let server = Server::bind(&addr).serve(make_service);
     println!("Listening on http://{}", addr);
 
-    server.await?;
+    tokio::join!(
+        async {
+            server.await;
+        },
+        async {
+            update_perm.await;
+        },
+    );
+
 
     Ok(())
 }

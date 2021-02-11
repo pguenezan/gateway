@@ -21,8 +21,11 @@ fn get_permission_check(
     match (full_path, method_str) {
         (None, None) => quote! {
             let perm = format!("{}::{}::{}", &app[1..], method_str, forwarded_path);
-            if !claims.roles.contains(&perm) {
-                return get_response(StatusCode::FORBIDDEN, &FORBIDDEN, &labels, &start_time, &req_size);
+            match perm_lock.read().await.get(&perm) {
+                Some(users) if users.contains(&claims.token_id) => (),
+                _ => {
+                    return get_response(StatusCode::FORBIDDEN, &FORBIDDEN, &labels, &start_time, &req_size);
+                },
             }
         },
         (Some(full_path), Some(method_str)) => {
@@ -34,10 +37,13 @@ fn get_permission_check(
                     let perm = format!("{}::{}::{}", app, method_str, perm_path);
 
                     return quote! {
-                        if !claims.roles.contains(&#perm.to_owned()) {
-                            return get_response(StatusCode::FORBIDDEN, &FORBIDDEN, &labels, &start_time, &req_size);
+                        match perm_lock.read().await.get(#perm) {
+                            Some(users) if users.contains(&claims.token_id) => (),
+                            _ => {
+                                return get_response(StatusCode::FORBIDDEN, &FORBIDDEN, &labels, &start_time, &req_size);
+                            },
                         }
-                        println!("{} ({}) => {}", claims.preferred_username, claims.sub, #perm);
+                        println!("{} ({}) => {}", claims.preferred_username, claims.token_id, #perm);
                     };
                 }
             }
@@ -57,7 +63,6 @@ fn get_forward_request(
     let host = format!("http://{}{}/", &api.host, &api.forward_path);
 
     let check_perm = get_permission_check(api, full_path, method_str);
-    let role_prefix = format!("{}::roles::", &api.app_name[1..]);
     let app_name = &api.app_name;
 
     let commit = match (full_path, method_str) {
@@ -95,7 +100,15 @@ fn get_forward_request(
             Ok(uri) => *req.uri_mut() = uri,
             Err(_) => { return get_response(StatusCode::NOT_FOUND, &NOTFOUND, &labels, &start_time, &req_size); },
         };
-        inject_headers(req.headers_mut(), &claims, #role_prefix, token_type);
+        let role_read = role_lock.read().await;
+        let roles = match role_read.get(&claims.token_id) {
+            None => "",
+            Some(roles) => match roles.get(&#app_name[1..]) {
+                None => "",
+                Some(roles) => &roles,
+            },
+        };
+        inject_headers(req.headers_mut(), &claims, roles, token_type);
         match client.request(req).await {
             Ok(mut response) => {
                 inject_cors(response.headers_mut());

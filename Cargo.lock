@@ -129,13 +129,16 @@ dependencies = [
 name = "gateway"
 version = "0.1.0"
 dependencies = [
+ "bytes",
  "http-body",
  "hyper",
  "jsonwebtoken",
  "lazy_static",
  "macros",
  "prometheus",
+ "regex",
  "serde",
+ "serde_json",
  "tokio",
 ]
 

@@ -1,57 +1,13 @@
 gateway_config! {
     [
         Api {
-            app_name: "/phrit",
-            host: "phrit-prod-phrit:80",
-            forward_path: "/phrit",
+            app_name: "/chartis",
+            host: "127.0.0.1:8000",
+            forward_path: "/chartis",
             mode: "forward_strict",
             endpoints: [
                 Endpoint {
-                    path: "/values/",
-                    method: "GET",
-                },
-                Endpoint {
-                    path: "/{output}/{source}/ligne/",
-                    method: "GET",
-                },
-                Endpoint {
-                    path: "/{output}/{source}/pointremarquable/",
-                    method: "GET",
-                },
-                Endpoint {
-                    path: "/events/{id}/prediction/feedbacks/",
-                    method: "POST",
-                },
-                Endpoint {
-                    path: "/ligne/",
-                    method: "GET",
-                },
-                Endpoint {
-                    path: "/pointremarquable/eic/",
-                    method: "GET",
-                },
-                Endpoint {
-                    path: "/events/",
-                    method: "GET",
-                },
-                Endpoint {
-                    path: "/events/{id}/prediction/",
-                    method: "GET",
-                },
-                Endpoint {
-                    path: "/events/{id}/prediction/feedbacks/{feedback_id}/",
-                    method: "GET",
-                },
-                Endpoint {
-                    path: "/events/{id}/prediction/feedbacks/",
-                    method: "GET",
-                },
-                Endpoint {
-                    path: "/{output}/{source}/pointremarquable/{z}/{x}/{y}/",
-                    method: "GET",
-                },
-                Endpoint {
-                    path: "/{output}/{source}/ligne/{z}/{x}/{y}/",
+                    path: "/layer/{layerSlug}/mvt/{geoType}/",
                     method: "GET",
                 },
             ],

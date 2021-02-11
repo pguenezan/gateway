@@ -2,6 +2,7 @@ use std::collections::HashSet;
 use std::env;
 
 use jsonwebtoken::{decode, Algorithm, DecodingKey, Validation};
+use jsonwebtoken::errors::Error;
 use serde::Deserialize;
 
 use lazy_static::lazy_static;
@@ -16,7 +17,7 @@ pub struct Claims {
     pub given_name: String,
     pub family_name: String,
     pub email: String,
-    pub roles: Vec<String>,
+    pub token_id: String,
 }
 
 fn get_audience() -> Option<HashSet<String>> {
@@ -40,10 +41,26 @@ lazy_static! {
         aud: get_audience(),
         sub: None,
     };
+
+    static ref VALIDATION_2: Validation = Validation {
+        leeway: 0,
+        validate_exp: true,
+        algorithms: vec![Algorithm::RS256],
+        validate_nbf: false,
+        iss: env::var("JWT_ISSER_2").ok(),
+        aud: get_audience(),
+        sub: None,
+    };
+
     static ref PUBLIC_KEY_SHORT: DecodingKey<'static> =
         DecodingKey::from_rsa_pem(include_bytes!("public_key_short.pem")).unwrap();
     static ref PUBLIC_KEY_LONG: DecodingKey<'static> =
         DecodingKey::from_rsa_pem(include_bytes!("public_key_long.pem")).unwrap();
+
+    static ref PUBLIC_KEY_SHORT_2: Result<DecodingKey<'static>, Error> =
+        DecodingKey::from_rsa_pem(include_bytes!("public_key_short_2.pem"));
+    static ref PUBLIC_KEY_LONG_2: Result<DecodingKey<'static>, Error> =
+        DecodingKey::from_rsa_pem(include_bytes!("public_key_long_2.pem"));
 }
 
 const AUTH_SHIFT: usize = "Bearer ".len();
@@ -52,13 +69,29 @@ pub async fn get_claims(authorization: &str) -> Option<(Claims, &'static str)> {
     if authorization.len() <= AUTH_SHIFT {
         return None;
     }
+    println!("{:#?}", &PUBLIC_KEY_LONG_2.is_ok());
+    println!("{:#?}", &PUBLIC_KEY_SHORT_2.is_ok());
     match decode::<Claims>(&authorization[AUTH_SHIFT..], &PUBLIC_KEY_SHORT, &VALIDATION) {
-        Ok(token) => Some((token.claims, "short")),
-        Err(_) => {
-            let token =
-                decode::<Claims>(&authorization[AUTH_SHIFT..], &PUBLIC_KEY_LONG, &VALIDATION)
-                    .ok()?;
-            Some((token.claims, "long"))
+        Ok(token) => return Some((token.claims, "short")),
+        Err(_) => (),
+    }
+    match decode::<Claims>(&authorization[AUTH_SHIFT..], &PUBLIC_KEY_LONG, &VALIDATION) {
+        Ok(token) => return Some((token.claims, "long")),
+        Err(_) => (),
+    }
+    match PUBLIC_KEY_SHORT_2.as_ref() {
+        Err(_) => (),
+        Ok(key) => match decode::<Claims>(&authorization[AUTH_SHIFT..], key, &VALIDATION_2) {
+            Ok(token) => return Some((token.claims, "short")),
+            Err(_) => (),
         }
     }
+    match PUBLIC_KEY_LONG_2.as_ref() {
+        Err(_) => (),
+        Ok(key) => match decode::<Claims>(&authorization[AUTH_SHIFT..], key, &VALIDATION_2) {
+            Ok(token) => return Some((token.claims, "long")),
+            Err(_) => return None,
+        },
+    }
+    None
 }
