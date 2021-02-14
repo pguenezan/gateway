@@ -69,28 +69,26 @@ pub async fn get_claims(authorization: &str) -> Option<(Claims, &'static str)> {
     if authorization.len() <= AUTH_SHIFT {
         return None;
     }
-    println!("{:#?}", &PUBLIC_KEY_LONG_2.is_ok());
-    println!("{:#?}", &PUBLIC_KEY_SHORT_2.is_ok());
     match decode::<Claims>(&authorization[AUTH_SHIFT..], &PUBLIC_KEY_SHORT, &VALIDATION) {
         Ok(token) => return Some((token.claims, "short")),
-        Err(_) => (),
+        Err(e) => { println!("1 {}", e); },
     }
     match decode::<Claims>(&authorization[AUTH_SHIFT..], &PUBLIC_KEY_LONG, &VALIDATION) {
         Ok(token) => return Some((token.claims, "long")),
-        Err(_) => (),
+        Err(e) => { println!("2 {}", e); },
     }
     match PUBLIC_KEY_SHORT_2.as_ref() {
         Err(_) => (),
         Ok(key) => match decode::<Claims>(&authorization[AUTH_SHIFT..], key, &VALIDATION_2) {
             Ok(token) => return Some((token.claims, "short")),
-            Err(_) => (),
+            Err(e) => { println!("3 {}", e); },
         }
     }
     match PUBLIC_KEY_LONG_2.as_ref() {
         Err(_) => (),
         Ok(key) => match decode::<Claims>(&authorization[AUTH_SHIFT..], key, &VALIDATION_2) {
             Ok(token) => return Some((token.claims, "long")),
-            Err(_) => return None,
+            Err(e) => { println!("4 {}", e); },
         },
     }
     None
