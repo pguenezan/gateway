@@ -112,6 +112,16 @@ fn parse_chain_to(input: Expr) -> Result<Vec<String>, proc_macro::TokenStream> {
     Ok(chain_to)
 }
 
+fn parse_bool(input: Expr) -> Result<bool, proc_macro::TokenStream> {
+    match input {
+        Expr::Lit(ExprLit {
+            lit: Lit::Bool(boolean),
+            ..
+        }) => Ok(boolean.value),
+        _ => to_compile_error!(input.span(), "should be a boolean"),
+    }
+}
+
 pub fn parse_endpoints(input: Expr) -> Result<Vec<Endpoint>, proc_macro::TokenStream> {
     let mut endpoints = Vec::new();
 
@@ -133,6 +143,7 @@ pub fn parse_endpoints(input: Expr) -> Result<Vec<Endpoint>, proc_macro::TokenSt
         }
         let mut content = HashMap::new();
         let mut chain_to = None;
+        let mut trim_trailing_slash = false;
         for field in structure.fields {
             match field.member {
                 Member::Named(ident) => {
@@ -140,30 +151,42 @@ pub fn parse_endpoints(input: Expr) -> Result<Vec<Endpoint>, proc_macro::TokenSt
                     if content.contains_key(&name) {
                         return to_compile_error!(ident.span(), "is already defined");
                     }
-                    if name == "chain_to" {
-                        match parse_chain_to(field.expr) {
+
+                    match name.as_str() {
+                        "chain_to" => match parse_chain_to(field.expr) {
                             Ok(parse_chain_to) => chain_to = Some(parse_chain_to),
                             Err(e) => return Err(e),
-                        }
-                    } else {
-                        match check_field(&name, &expr_to_str(&field.expr)) {
-                            Ok(value) => content.insert(name, value),
+                        },
+                        "trim_trailing_slash" => match parse_bool(field.expr) {
+                            Ok(boolean) => trim_trailing_slash = boolean,
+                            Err(err) => return Err(err),
+                        },
+                        _ => match check_field(&name, &expr_to_str(&field.expr)) {
+                            Ok(value) => {
+                                content.insert(name, value);
+                            }
                             Err(msg) => return to_compile_error!(field.expr.span(), msg),
-                        };
-                    }
+                        },
+                    };
                 }
                 _ => return to_compile_error!(field.span(), "field should be named"),
             }
         }
 
-        let path = match content.get("path") {
-            Some(path) => path,
+        let mut path = match content.get("path") {
+            Some(path) => path.as_str(),
             None => return to_compile_error!(structure.path.span(), "missing field `path`"),
         };
         let method = match content.get("method") {
             Some(method) => method,
             None => return to_compile_error!(structure.path.span(), "missing field `method`"),
         };
+
+        if trim_trailing_slash {
+            // it's safe to unwrap here because parse_fields makes sure paths always end with a
+            // slash initially
+            path = path.strip_suffix('/').unwrap();
+        }
 
         endpoints.push(Endpoint {
             path: path.to_string(),

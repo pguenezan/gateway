@@ -305,7 +305,8 @@ fn handle_no_common_prefix(
     }
     let mut new_paths = HashSet::new();
     for (path, full_path, method) in paths {
-        let skip_size = path.find("/").unwrap();
+        // if no final slash is found, this is a `trim_trailing_slash` endpoint
+        let skip_size = path.find('/').unwrap_or_else(|| path.len());
         if !has_param_at_start(path) {
             panic!(
                 "`{} `(part of `{}`) should starts with a capture",

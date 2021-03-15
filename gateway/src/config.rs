@@ -9,6 +9,7 @@ gateway_config! {
                 Endpoint {
                     path: "/layer/{layerSlug}/mvt/{geoType}/",
                     method: "GET",
+                    trim_trailing_slash: true,
                 },
             ],
         },
