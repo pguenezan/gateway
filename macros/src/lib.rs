@@ -37,6 +37,7 @@ fn get_permission_check(
                     let perm = format!("{}::{}::{}", app, method_str, perm_path);
 
                     return quote! {
+                        println!("checking perm {} for {}", #perm, &claims.token_id);
                         match perm_lock.read().await.get(#perm) {
                             Some(users) if users.contains(&claims.token_id) => (),
                             _ => {
