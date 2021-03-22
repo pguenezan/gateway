@@ -338,7 +338,7 @@ async fn get_perm(perm_uri: Uri, perm_token_uri: Uri) -> Result<(HashMap<String,
     let mut perm_token_vec: Vec<Perm> = serde_json::from_reader(body_token.reader())?;
     perm_vec.append(&mut perm_token_vec);
 
-    let mut perm_hm = HashMap::new();
+    let mut perm_hm: HashMap<String, HashSet<String>> = HashMap::new();
     let is_role_perm = Regex::new("([^:]+)::roles::(.*)").unwrap();
     let mut user_role = HashMap::new();
 
@@ -351,7 +351,13 @@ async fn get_perm(perm_uri: Uri, perm_token_uri: Uri) -> Result<(HashMap<String,
                 user_role.entry(user_id).or_insert(HashMap::new()).entry(app_name).or_insert(Vec::new()).push(role_name);
             }
         }
-        perm_hm.insert(perm.role_name.to_string(), perm.user_id.clone());
+        if perm_hm.contains_key(&perm.role_name) {
+            let old_value = perm_hm.get(&perm.role_name).unwrap();
+            let new_value: HashSet<String> = old_value.union(&perm.user_id).map(|s| s.to_string()).collect();
+            perm_hm.insert(perm.role_name.to_string(), new_value);
+        } else {
+            perm_hm.insert(perm.role_name.to_string(), perm.user_id.clone());
+        }
     }
 
     let mut user_role_final = HashMap::new();
