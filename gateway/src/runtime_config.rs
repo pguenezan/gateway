@@ -1,9 +1,9 @@
-use std::error;
 use std::env;
+use std::error;
 use std::fs::File;
-use std::process::exit;
 use std::io::BufReader;
 use std::path::Path;
+use std::process::exit;
 
 use serde::Deserialize;
 
@@ -47,7 +47,7 @@ fn get_runtime_config<P: AsRef<Path>>(path: P) -> Result<RuntimeConfig> {
 
 pub fn init_runtime_config() -> Result<()> {
     let args: Vec<String> = env::args().collect();
-    if args.len() != 2{
+    if args.len() != 2 {
         eprintln!("usage: {} runtime_config.yaml", args.first().unwrap());
         exit(1);
     }

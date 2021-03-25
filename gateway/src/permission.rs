@@ -1,4 +1,4 @@
-use std::collections::{HashSet, HashMap};
+use std::collections::{HashMap, HashSet};
 use std::process::exit;
 use std::sync::Arc;
 
@@ -13,7 +13,7 @@ use hyper::Client;
 use tokio::sync::RwLock;
 use tokio::time::{sleep, Duration};
 
-use crate::runtime_config::{RUNTIME_CONFIG, PermUri};
+use crate::runtime_config::{PermUri, RUNTIME_CONFIG};
 
 type GenericError = Box<dyn std::error::Error>;
 type Result<T> = std::result::Result<T, GenericError>;
@@ -33,8 +33,10 @@ async fn fetch_perm(perm_uri: &PermUri) -> Option<PermList> {
     serde_json::from_reader(body.reader()).ok()?
 }
 
-pub async fn get_perm() -> Result<(HashMap<String, HashSet<String>>, HashMap<String, HashMap<String, String>>)> {
-
+pub async fn get_perm() -> Result<(
+    HashMap<String, HashSet<String>>,
+    HashMap<String, HashMap<String, String>>,
+)> {
     let mut perm_hm: HashMap<String, HashSet<String>> = HashMap::new();
     let is_role_perm = Regex::new("([^:]+)::roles::(.*)").unwrap();
     let mut user_role = HashMap::new();
@@ -48,18 +50,26 @@ pub async fn get_perm() -> Result<(HashMap<String, HashSet<String>>, HashMap<Str
                         let app_name = captures.get(1).unwrap().as_str();
                         let role_name = captures.get(2).unwrap().as_str();
                         for user_id in perm.user_id.iter() {
-                            user_role.entry(user_id.to_string()).or_insert(HashMap::new()).entry(app_name.to_string()).or_insert(Vec::new()).push(role_name.to_string());
+                            user_role
+                                .entry(user_id.to_string())
+                                .or_insert(HashMap::new())
+                                .entry(app_name.to_string())
+                                .or_insert(Vec::new())
+                                .push(role_name.to_string());
                         }
                     }
                     if perm_hm.contains_key(&perm.role_name) {
                         let old_value = perm_hm.get(&perm.role_name).unwrap();
-                        let new_value: HashSet<String> = old_value.union(&perm.user_id).map(|s| s.to_string()).collect();
+                        let new_value: HashSet<String> = old_value
+                            .union(&perm.user_id)
+                            .map(|s| s.to_string())
+                            .collect();
                         perm_hm.insert(perm.role_name.to_string(), new_value);
                     } else {
                         perm_hm.insert(perm.role_name.to_string(), perm.user_id.clone());
                     }
                 }
-            },
+            }
             None => {
                 eprintln!("fail to fetch permission");
                 exit(1);
@@ -70,14 +80,22 @@ pub async fn get_perm() -> Result<(HashMap<String, HashSet<String>>, HashMap<Str
     let mut user_role_final = HashMap::new();
     for (user_sub, apps) in &user_role {
         for (app_name, perms) in apps {
-            let perm_str = perms.iter().fold(String::new(), |acc, perm| { acc + "," + perm });
-            user_role_final.entry(user_sub.to_string()).or_insert(HashMap::new()).insert(app_name.to_string(), perm_str[1..].to_string());
+            let perm_str = perms
+                .iter()
+                .fold(String::new(), |acc, perm| acc + "," + perm);
+            user_role_final
+                .entry(user_sub.to_string())
+                .or_insert(HashMap::new())
+                .insert(app_name.to_string(), perm_str[1..].to_string());
         }
     }
     Ok((perm_hm, user_role_final))
 }
 
-pub async fn update_perm(perm_lock: Arc<RwLock<HashMap<String, HashSet<String>>>>, role_lock: Arc<RwLock<HashMap<String, HashMap<String, String>>>>) {
+pub async fn update_perm(
+    perm_lock: Arc<RwLock<HashMap<String, HashSet<String>>>>,
+    role_lock: Arc<RwLock<HashMap<String, HashMap<String, String>>>>,
+) {
     loop {
         sleep(Duration::from_millis(RUNTIME_CONFIG.get().unwrap().perm_update_delay) * 1000).await;
         let (perm, role) = get_perm().await.unwrap();

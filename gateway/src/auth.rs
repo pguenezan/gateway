@@ -6,7 +6,7 @@ use serde::Deserialize;
 
 use once_cell::sync::OnceCell;
 
-use crate::runtime_config::{RUNTIME_CONFIG, AuthSource};
+use crate::runtime_config::{AuthSource, RUNTIME_CONFIG};
 
 #[allow(dead_code)] // some fields are only used by the validator
 #[derive(Deserialize)]
@@ -60,12 +60,18 @@ static TOKEN_SOURCES: OnceCell<Vec<TokenSource>> = OnceCell::new();
 const AUTH_SHIFT: usize = "Bearer ".len();
 
 pub fn init_token_sources() {
-    let token_sources = RUNTIME_CONFIG.get().unwrap().auth_sources.iter().map(|auth_source| TokenSource::new(auth_source)).collect();
+    let token_sources = RUNTIME_CONFIG
+        .get()
+        .unwrap()
+        .auth_sources
+        .iter()
+        .map(|auth_source| TokenSource::new(auth_source))
+        .collect();
     match TOKEN_SOURCES.set(token_sources) {
         Err(_) => {
             eprintln!("fail to set TOKEN_SOURCES");
             exit(1);
-        },
+        }
         _ => (),
     }
 }
@@ -75,9 +81,15 @@ pub async fn get_claims(authorization: &str) -> Option<(Claims, String)> {
         return None;
     }
     for token_source in TOKEN_SOURCES.get().unwrap().iter().as_ref() {
-        match decode::<Claims>(&authorization[AUTH_SHIFT..], &token_source.public_key, &token_source.validation) {
+        match decode::<Claims>(
+            &authorization[AUTH_SHIFT..],
+            &token_source.public_key,
+            &token_source.validation,
+        ) {
             Ok(token) => return Some((token.claims, token_source.token_type.to_string())),
-            Err(e) => { println!("{} {}", token_source.name, e); },
+            Err(e) => {
+                println!("{} {}", token_source.name, e);
+            }
         }
     }
     None

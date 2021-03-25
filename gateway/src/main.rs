@@ -1,7 +1,7 @@
+use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
 use std::process::exit;
 use std::time::Instant;
-use std::collections::{HashSet, HashMap};
 
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -24,10 +24,10 @@ use prometheus::{
 };
 
 mod auth;
-use auth::{init_token_sources, get_claims, Claims};
+use auth::{get_claims, init_token_sources, Claims};
 
 mod runtime_config;
-use runtime_config::{RUNTIME_CONFIG, init_runtime_config};
+use runtime_config::{init_runtime_config, RUNTIME_CONFIG};
 
 mod permission;
 use permission::{get_perm, update_perm};
@@ -215,7 +215,12 @@ async fn health() -> Result<Response<Body>> {
         .unwrap())
 }
 
-async fn response(mut req: Request<Body>, client: Client<HttpConnector>, perm_lock: Arc<RwLock<HashMap<String, HashSet<String>>>>, role_lock: Arc<RwLock<HashMap<String, HashMap<String, String>>>>) -> Result<Response<Body>> {
+async fn response(
+    mut req: Request<Body>,
+    client: Client<HttpConnector>,
+    perm_lock: Arc<RwLock<HashMap<String, HashSet<String>>>>,
+    role_lock: Arc<RwLock<HashMap<String, HashMap<String, String>>>>,
+) -> Result<Response<Body>> {
     match req.uri().path() {
         "/metrics" => {
             return metrics().await;
@@ -320,14 +325,13 @@ async fn response(mut req: Request<Body>, client: Client<HttpConnector>, perm_lo
     include!("config.rs")
 }
 
-
 #[tokio::main]
 async fn main() -> Result<()> {
     match init_runtime_config() {
         Err(e) => {
             eprintln!("runtime config is not valid: {}", e);
             exit(1);
-        },
+        }
         _ => (),
     };
     init_token_sources();
@@ -373,7 +377,6 @@ async fn main() -> Result<()> {
             update_perm.await;
         },
     );
-
 
     Ok(())
 }
