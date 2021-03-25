@@ -317,7 +317,10 @@ async fn response(mut req: Request<Body>, client: Client<HttpConnector>, perm_lo
         }
     };
 
-    include!("config.rs")
+    // HACK: inform the compiler that a build should trigger if config.yaml is modified
+    const _: &str = include_str!("../config.yaml");
+
+    gateway_config!("config.yaml")
 }
 
 #[derive(Deserialize, Debug)]
