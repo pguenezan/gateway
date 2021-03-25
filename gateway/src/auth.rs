@@ -1,11 +1,12 @@
 use std::collections::HashSet;
-use std::env;
+use std::process::exit;
 
 use jsonwebtoken::{decode, Algorithm, DecodingKey, Validation};
-use jsonwebtoken::errors::Error;
 use serde::Deserialize;
 
-use lazy_static::lazy_static;
+use once_cell::sync::OnceCell;
+
+use crate::runtime_config::{AuthSource, RUNTIME_CONFIG};
 
 #[allow(dead_code)] // some fields are only used by the validator
 #[derive(Deserialize)]
@@ -20,76 +21,73 @@ pub struct Claims {
     pub token_id: String,
 }
 
-fn get_audience() -> Option<HashSet<String>> {
-    match env::var("JWT_AUDIENCE") {
-        Ok(aud) => {
-            let mut auds = HashSet::new();
-            auds.insert(aud);
-            Some(auds)
+fn get_audience(aud: String) -> HashSet<String> {
+    let mut auds = HashSet::new();
+    auds.insert(aud);
+    auds
+}
+
+struct TokenSource {
+    pub name: String,
+    pub token_type: String,
+    pub validation: Validation,
+    pub public_key: DecodingKey<'static>,
+}
+
+impl TokenSource {
+    pub fn new(auth_source: &'static AuthSource) -> Self {
+        let validation = Validation {
+            leeway: 0,
+            validate_exp: true,
+            algorithms: vec![Algorithm::RS256],
+            validate_nbf: false,
+            iss: Some(auth_source.issuer.to_string()),
+            aud: Some(get_audience(auth_source.audience.to_string())),
+            sub: None,
+        };
+        let public_key = DecodingKey::from_rsa_pem(auth_source.public_key.as_bytes()).unwrap();
+        Self {
+            name: auth_source.name.to_string(),
+            token_type: auth_source.token_type.to_string(),
+            validation,
+            public_key,
         }
-        Err(_) => None,
     }
 }
 
-lazy_static! {
-    static ref VALIDATION: Validation = Validation {
-        leeway: 0,
-        validate_exp: true,
-        algorithms: vec![Algorithm::RS256],
-        validate_nbf: false,
-        iss: env::var("JWT_ISSER").ok(),
-        aud: get_audience(),
-        sub: None,
-    };
-
-    static ref VALIDATION_2: Validation = Validation {
-        leeway: 0,
-        validate_exp: true,
-        algorithms: vec![Algorithm::RS256],
-        validate_nbf: false,
-        iss: env::var("JWT_ISSER_2").ok(),
-        aud: get_audience(),
-        sub: None,
-    };
-
-    static ref PUBLIC_KEY_SHORT: DecodingKey<'static> =
-        DecodingKey::from_rsa_pem(include_bytes!("public_key_short.pem")).unwrap();
-    static ref PUBLIC_KEY_LONG: DecodingKey<'static> =
-        DecodingKey::from_rsa_pem(include_bytes!("public_key_long.pem")).unwrap();
-
-    static ref PUBLIC_KEY_SHORT_2: Result<DecodingKey<'static>, Error> =
-        DecodingKey::from_rsa_pem(include_bytes!("public_key_short_2.pem"));
-    static ref PUBLIC_KEY_LONG_2: Result<DecodingKey<'static>, Error> =
-        DecodingKey::from_rsa_pem(include_bytes!("public_key_long_2.pem"));
-}
+static TOKEN_SOURCES: OnceCell<Vec<TokenSource>> = OnceCell::new();
 
 const AUTH_SHIFT: usize = "Bearer ".len();
 
-pub async fn get_claims(authorization: &str) -> Option<(Claims, &'static str)> {
+pub fn init_token_sources() {
+    let token_sources = RUNTIME_CONFIG
+        .get()
+        .unwrap()
+        .auth_sources
+        .iter()
+        .map(|auth_source| TokenSource::new(auth_source))
+        .collect();
+    if TOKEN_SOURCES.set(token_sources).is_err() {
+        eprintln!("fail to set TOKEN_SOURCES");
+        exit(1);
+    }
+}
+
+pub async fn get_claims(authorization: &str) -> Option<(Claims, String)> {
     if authorization.len() <= AUTH_SHIFT {
         return None;
     }
-    match decode::<Claims>(&authorization[AUTH_SHIFT..], &PUBLIC_KEY_SHORT, &VALIDATION) {
-        Ok(token) => return Some((token.claims, "short")),
-        Err(e) => { println!("1 {}", e); },
-    }
-    match decode::<Claims>(&authorization[AUTH_SHIFT..], &PUBLIC_KEY_LONG, &VALIDATION) {
-        Ok(token) => return Some((token.claims, "long")),
-        Err(e) => { println!("2 {}", e); },
-    }
-    match PUBLIC_KEY_SHORT_2.as_ref() {
-        Err(_) => (),
-        Ok(key) => match decode::<Claims>(&authorization[AUTH_SHIFT..], key, &VALIDATION_2) {
-            Ok(token) => return Some((token.claims, "short")),
-            Err(e) => { println!("3 {}", e); },
+    for token_source in TOKEN_SOURCES.get().unwrap().iter().as_ref() {
+        match decode::<Claims>(
+            &authorization[AUTH_SHIFT..],
+            &token_source.public_key,
+            &token_source.validation,
+        ) {
+            Ok(token) => return Some((token.claims, token_source.token_type.to_string())),
+            Err(e) => {
+                println!("{} {}", token_source.name, e);
+            }
         }
-    }
-    match PUBLIC_KEY_LONG_2.as_ref() {
-        Err(_) => (),
-        Ok(key) => match decode::<Claims>(&authorization[AUTH_SHIFT..], key, &VALIDATION_2) {
-            Ok(token) => return Some((token.claims, "long")),
-            Err(e) => { println!("4 {}", e); },
-        },
     }
     None
 }

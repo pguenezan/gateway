@@ -1,16 +1,10 @@
-use std::env;
+use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
 use std::process::exit;
 use std::time::Instant;
-use std::collections::{HashSet, HashMap};
-
-use regex::Regex;
 
 use std::sync::Arc;
 use tokio::sync::RwLock;
-
-use serde::Deserialize;
-use bytes::Buf as _;
 
 use http_body::SizeHint;
 use hyper::body::HttpBody;
@@ -20,7 +14,7 @@ use hyper::header::{
     ACCESS_CONTROL_ALLOW_ORIGIN, AUTHORIZATION, CONTENT_TYPE,
 };
 use hyper::service::{make_service_fn, service_fn};
-use hyper::{Body, Client, HeaderMap, Method, Request, Response, Server, StatusCode, Uri};
+use hyper::{Body, Client, HeaderMap, Method, Request, Response, Server, StatusCode};
 
 use lazy_static::lazy_static;
 
@@ -30,7 +24,13 @@ use prometheus::{
 };
 
 mod auth;
-use auth::{get_claims, Claims};
+use auth::{get_claims, init_token_sources, Claims};
+
+mod runtime_config;
+use runtime_config::{init_runtime_config, RUNTIME_CONFIG};
+
+mod permission;
+use permission::{get_perm, update_perm};
 
 use macros::gateway_config;
 
@@ -109,44 +109,52 @@ fn get_response(
 
 const LABEL_NAMES: [&str; 4] = ["app", "path", "method", "status_code"];
 
+fn get_metric_name(name: &str) -> String {
+    format!(
+        "gateway_{}_http_{}",
+        RUNTIME_CONFIG.get().unwrap().metrics_prefix,
+        name
+    )
+}
+
 lazy_static! {
     static ref HTTP_COUNTER: CounterVec = register_counter_vec!(
         opts!(
-            "gateway_http_requests_total",
+            get_metric_name("requests_total"),
             "Number of HTTP requests made."
         ),
         &LABEL_NAMES
     )
     .unwrap();
     static ref HTTP_REQ_LAT_HISTOGRAM: HistogramVec = register_histogram_vec!(
-        "gateway_http_request_duration_seconds",
+        get_metric_name("request_duration_seconds"),
         "The HTTP request latencies in seconds.",
         &LABEL_NAMES
     )
     .unwrap();
     static ref HTTP_REQ_SIZE_HISTOGRAM_LOW: HistogramVec = register_histogram_vec!(
-        "gateway_http_request_size_low_bytes",
+        get_metric_name("request_size_low_bytes"),
         "The HTTP request size in bytes (lower bound).",
         &LABEL_NAMES,
         exponential_buckets(1.0, 2.0, 35).unwrap()
     )
     .unwrap();
     static ref HTTP_REQ_SIZE_HISTOGRAM_HIGH: HistogramVec = register_histogram_vec!(
-        "gateway_http_request_size_high_bytes",
+        get_metric_name("request_size_high_bytes"),
         "The HTTP request size in bytes (upper bound).",
         &LABEL_NAMES,
         exponential_buckets(1.0, 2.0, 35).unwrap()
     )
     .unwrap();
     static ref HTTP_RES_SIZE_HISTOGRAM_LOW: HistogramVec = register_histogram_vec!(
-        "gateway_http_response_size_low_bytes",
+        get_metric_name("response_size_low_bytes"),
         "The HTTP response size in bytes (lower bound).",
         &LABEL_NAMES,
         exponential_buckets(1.0, 2.0, 35).unwrap()
     )
     .unwrap();
     static ref HTTP_RES_SIZE_HISTOGRAM_HIGH: HistogramVec = register_histogram_vec!(
-        "gateway_http_response_size_high_bytes",
+        get_metric_name("response_size_high_bytes"),
         "The HTTP response size in bytes (upper bound).",
         &LABEL_NAMES,
         exponential_buckets(1.0, 2.0, 35).unwrap()
@@ -215,7 +223,12 @@ async fn health() -> Result<Response<Body>> {
         .unwrap())
 }
 
-async fn response(mut req: Request<Body>, client: Client<HttpConnector>, perm_lock: Arc<RwLock<HashMap<String, HashSet<String>>>>, role_lock: Arc<RwLock<HashMap<String, HashMap<String, String>>>>) -> Result<Response<Body>> {
+async fn response(
+    mut req: Request<Body>,
+    client: Client<HttpConnector>,
+    perm_lock: Arc<RwLock<HashMap<String, HashSet<String>>>>,
+    role_lock: Arc<RwLock<HashMap<String, HashMap<String, String>>>>,
+) -> Result<Response<Body>> {
     match req.uri().path() {
         "/metrics" => {
             return metrics().await;
@@ -323,125 +336,27 @@ async fn response(mut req: Request<Body>, client: Client<HttpConnector>, perm_lo
     gateway_config!("config.yaml")
 }
 
-#[derive(Deserialize, Debug)]
-struct Perm {
-    role_name: String,
-    user_id: HashSet<String>,
-}
-
-async fn get_perm(perm_uri: Uri, perm_token_uri: Uri) -> Result<(HashMap<String, HashSet<String>>, HashMap<String, HashMap<String, String>>)> {
-    let client = Client::new();
-
-    let res = client.get(perm_uri).await?;
-    let body = hyper::body::aggregate(res).await?;
-    let mut perm_vec: Vec<Perm> = serde_json::from_reader(body.reader())?;
-
-    let res_token = client.get(perm_token_uri).await?;
-    let body_token = hyper::body::aggregate(res_token).await?;
-    let mut perm_token_vec: Vec<Perm> = serde_json::from_reader(body_token.reader())?;
-    perm_vec.append(&mut perm_token_vec);
-
-    let mut perm_hm: HashMap<String, HashSet<String>> = HashMap::new();
-    let is_role_perm = Regex::new("([^:]+)::roles::(.*)").unwrap();
-    let mut user_role = HashMap::new();
-
-    for perm in perm_vec.iter() {
-        if is_role_perm.is_match(&perm.role_name) {
-            let captures = is_role_perm.captures(&perm.role_name).unwrap();
-            let app_name = captures.get(1).unwrap().as_str();
-            let role_name = captures.get(2).unwrap().as_str();
-            for user_id in perm.user_id.iter() {
-                user_role.entry(user_id).or_insert(HashMap::new()).entry(app_name).or_insert(Vec::new()).push(role_name);
-            }
-        }
-        if perm_hm.contains_key(&perm.role_name) {
-            let old_value = perm_hm.get(&perm.role_name).unwrap();
-            let new_value: HashSet<String> = old_value.union(&perm.user_id).map(|s| s.to_string()).collect();
-            perm_hm.insert(perm.role_name.to_string(), new_value);
-        } else {
-            perm_hm.insert(perm.role_name.to_string(), perm.user_id.clone());
-        }
-    }
-
-    let mut user_role_final = HashMap::new();
-    for (user_sub, apps) in &user_role {
-        for (app_name, perms) in apps {
-            let perm_str = perms.iter().fold(String::new(), |acc, &perm| { acc + "," + perm });
-            user_role_final.entry(user_sub.to_string()).or_insert(HashMap::new()).insert(app_name.to_string(), perm_str[1..].to_string());
-        }
-    }
-    Ok((perm_hm, user_role_final))
-}
-
-use tokio::time::{sleep, Duration};
-async fn update_perm(perm_uri: &Uri, perm_token_uri: &Uri, perm_lock: Arc<RwLock<HashMap<String, HashSet<String>>>>, role_lock: Arc<RwLock<HashMap<String, HashMap<String, String>>>>) {
-    loop {
-        sleep(Duration::from_millis(30000)).await;
-        let (perm, role) = get_perm(perm_uri.clone(), perm_token_uri.clone()).await.unwrap();
-        {
-            let mut perm_write = perm_lock.write().await;
-            *perm_write = perm;
-        }
-        {
-            let mut role_write = role_lock.write().await;
-            *role_write = role;
-        }
-        println!("update perm");
-    }
-}
-
 #[tokio::main]
 async fn main() -> Result<()> {
-    let perm_uri = match env::var("PERM_URI") {
-        Ok(perm_uri) => match perm_uri.parse::<Uri>() {
-            Ok(perm_uri) => perm_uri,
-            Err(_) => {
-                eprintln!("PERM_URI is not valid");
-                exit(1);
-            },
-        },
-        Err(_) => {
-            eprintln!("missing PERM_URI from environment");
-            exit(1);
-        }
+    if let Err(e) = init_runtime_config() {
+        eprintln!("runtime config is not valid: {}", e);
+        exit(1);
     };
+    init_token_sources();
 
-    let perm_token_uri = match env::var("PERM_TOKEN_URI") {
-        Ok(perm_uri) => match perm_uri.parse::<Uri>() {
-            Ok(perm_uri) => perm_uri,
-            Err(_) => {
-                eprintln!("PERM_TOKEN_URI is not valid");
-                exit(1);
-            },
-        },
-        Err(_) => {
-            eprintln!("missing PERM_TOKEN_URI from environment");
-            exit(1);
-        }
-    };
-
-    let bind_to = match env::var("BIND_TO") {
-        Ok(bind_to) => bind_to,
-        Err(_) => {
-            eprintln!("missing BIND_TO from environment");
-            exit(1);
-        }
-    };
-
-    let addr: SocketAddr = match bind_to.parse() {
+    let addr: SocketAddr = match RUNTIME_CONFIG.get().unwrap().bind_to.parse() {
         Ok(addr) => addr,
         Err(_) => {
-            eprintln!("BIND_TO is not valid");
+            eprintln!("bind_to is not valid");
             exit(1);
         }
     };
 
-
-    let (perm, role) = get_perm(perm_uri.clone(), perm_token_uri.clone()).await.unwrap();
+    let (perm, role) = get_perm().await.unwrap();
     let perm_lock = Arc::new(RwLock::new(perm));
     let role_lock = Arc::new(RwLock::new(role));
 
-    let update_perm = update_perm(&perm_uri, &perm_token_uri, perm_lock.clone(), role_lock.clone());
+    let update_perm = update_perm(perm_lock.clone(), role_lock.clone());
 
     // Share a `Client` with all `Service`s
     let client = Client::new();
@@ -464,13 +379,14 @@ async fn main() -> Result<()> {
 
     tokio::join!(
         async {
-            server.await;
+            if let Err(e) = server.await {
+                eprintln!("fail to run server: {}", e);
+            }
         },
         async {
             update_perm.await;
         },
     );
-
 
     Ok(())
 }

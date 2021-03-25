@@ -143,14 +143,17 @@ version = "0.1.0"
 dependencies = [
  "bytes",
  "http-body",
+ "http-serde",
  "hyper",
  "jsonwebtoken",
  "lazy_static",
  "macros",
+ "once_cell",
  "prometheus",
  "regex",
  "serde",
  "serde_json",
+ "serde_yaml",
  "tokio",
 ]
 
@@ -214,6 +217,16 @@ checksum = "2861bd27ee074e5ee891e8b539837a9430012e249d7f0ca2d795650f579c1994"
 dependencies = [
  "bytes",
  "http",
+]
+
+[[package]]
+name = "http-serde"
+version = "1.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "aaa9564ce1decf49edcbd2b8f4f732843b4df64eabb8dcfcf0085ff34dbc76a2"
+dependencies = [
+ "http",
+ "serde",
 ]
 
 [[package]]
@@ -449,9 +462,9 @@ dependencies = [
 
 [[package]]
 name = "once_cell"
-version = "1.5.2"
+version = "1.7.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "13bd41f508810a131401606d54ac32a467c97172d74ba7662562ebba5ad07fa0"
+checksum = "af8b08b04175473088b46763e51ee54da5f9a164bc162f615b91bc179dbf15a3"
 
 [[package]]
 name = "parking_lot"

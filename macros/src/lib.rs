@@ -113,7 +113,7 @@ fn get_forward_request(
                 Some(roles) => &roles,
             },
         };
-        inject_headers(req.headers_mut(), &claims, roles, token_type);
+        inject_headers(req.headers_mut(), &claims, roles, &token_type);
         match client.request(req).await {
             Ok(mut response) => {
                 inject_cors(response.headers_mut());
