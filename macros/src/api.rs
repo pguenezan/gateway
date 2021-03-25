@@ -1,188 +1,87 @@
 use std::collections::HashMap;
-use std::str::FromStr;
 
-use proc_macro2::TokenStream;
-use quote::ToTokens;
-use syn::{spanned::Spanned, Expr, ExprLit, Lit, Member};
+use anyhow::{anyhow, bail};
+use serde::Deserialize;
 use url::Url;
 
-use crate::endpoint::{parse_endpoints, Endpoint};
-use crate::util::to_array;
+use crate::endpoint::Endpoint;
 
-macro_rules! to_compile_error {
-    ($span: expr, $msg: expr) => {
-        Err(proc_macro::TokenStream::from(
-            syn::Error::new($span, $msg).to_compile_error(),
-        ))
-    };
-}
-
-#[derive(PartialEq, Debug)]
+#[derive(Deserialize, Debug)]
+#[serde(rename_all(deserialize = "snake_case"))]
+#[serde(tag = "kind", content = "endpoints")]
 pub enum ApiMode {
     ForwardAll,
-    ForwardStrict,
+    ForwardStrict(Vec<Endpoint>),
 }
 
-impl FromStr for ApiMode {
-    type Err = ();
-    fn from_str(input: &str) -> Result<ApiMode, ()> {
-        match input {
-            "forward_all" => Ok(ApiMode::ForwardAll),
-            "forward_strict" => Ok(ApiMode::ForwardStrict),
-            _ => Err(()),
-        }
-    }
-}
-
-#[derive(Debug)]
+#[derive(Deserialize, Debug)]
 pub struct Api {
     pub app_name: String,
     pub host: String,
     pub mode: ApiMode,
     pub forward_path: String,
-    pub endpoints: Option<Vec<Endpoint>>,
 }
 
-fn expr_to_str(expr: &Expr) -> String {
-    match expr {
-        Expr::Lit(ExprLit {
-            lit: Lit::Str(string),
-            ..
-        }) => string.value(),
-        expr => {
-            let mut tokens = TokenStream::new();
-            expr.to_tokens(&mut tokens);
-            format!("{}", tokens)
+impl Api {
+    fn check_fields(&self) -> anyhow::Result<()> {
+        self.check_app_name()?;
+        self.check_host()?;
+        self.check_endpoints()?;
+        self.check_forward_path()?;
+
+        Ok(())
+    }
+
+    fn check_app_name(&self) -> anyhow::Result<()> {
+        if self.app_name.len() < 2 {
+            bail!("app_name: {} must be at least 2 characters", self.app_name);
         }
+        if !self.app_name.starts_with('/') {
+            bail!("app_name: {} should start with `/`", self.app_name);
+        }
+        if self.app_name[1..].contains('/') {
+            bail!("app_name: {} should only have one `/`", self.app_name);
+        }
+        if self.app_name == "/metrics" || self.app_name == "/health" {
+            bail!(
+                "app_name: {} cannot be `/metrics` or `/health`",
+                self.app_name
+            );
+        }
+
+        Ok(())
+    }
+
+    fn check_host(&self) -> anyhow::Result<()> {
+        Url::parse(&format!("http://{}", self.host))
+            .map_err(|_| anyhow!("host: {} isn't valid", self.host))
+            .map(|_| ())
+    }
+
+    fn check_forward_path(&self) -> anyhow::Result<()> {
+        if self.forward_path.is_empty() || self.forward_path.starts_with('/') {
+            Ok(())
+        } else {
+            bail!("forward_path: {} should start with `/`", self.forward_path);
+        }
+    }
+
+    fn check_endpoints(&self) -> anyhow::Result<()> {
+        if let ApiMode::ForwardStrict(endpoints) = &self.mode {
+            for endpoint in endpoints {
+                endpoint.check_fields()?;
+            }
+        }
+
+        Ok(())
     }
 }
 
-fn check_field(name: &str, value: &str) -> Result<String, String> {
-    match name {
-        "app_name" => {
-            if value.len() < 2 {
-                return Err(format!("app_name: {} must be at least 2 characters", value));
-            }
-            if !value.starts_with('/') {
-                return Err(format!("app_name: {} should start with `/`", value));
-            }
-            if value[1..].contains('/') {
-                return Err(format!("app_name: {} should only have one `/`", value));
-            }
-            if value == "/metrics" || value == "/health" {
-                return Err(format!(
-                    "app_name: {} cannot be `/metrics` or `/health`",
-                    value
-                ));
-            }
-            Ok(value.to_string())
-        }
-        "host" => match Url::parse(&format!("http://{}", value)) {
-            Err(_) => Err(format!("host: {} isn't valid", value)),
-            Ok(_) => Ok(value.to_string()),
-        },
-        "mode" => match ApiMode::from_str(value) {
-            Ok(_) => Ok(value.to_string()),
-            Err(_) => Err(format!("unknown mode: {}", value)),
-        },
-        "forward_path" => {
-            if value.is_empty() {
-                return Ok(value.to_string());
-            }
-            if !value.starts_with('/') {
-                return Err(format!("forward_path: {} should start with `/`", value));
-            }
-            Ok(value.to_string())
-        }
-        name => Err(format!("unknown field name: {}", name)),
-    }
-}
+pub fn parse_apis(yaml_content: &str) -> anyhow::Result<Vec<Api>> {
+    let apis: Vec<Api> = serde_yaml::from_str(yaml_content)?;
 
-pub fn parse_apis(input: Expr) -> Result<HashMap<String, Api>, proc_macro::TokenStream> {
-    let mut apis = HashMap::new();
-
-    let array = to_array(input)?;
-    for elem in array.elems {
-        let structure = match elem {
-            Expr::Struct(structure) => structure,
-            _ => return to_compile_error!(elem.span(), "not a structure"),
-        };
-        if structure.path.segments.len() != 1 {
-            return to_compile_error!(structure.path.span(), "a single path segment is expected");
-        }
-        if structure.path.segments[0].ident != "Api" {
-            return to_compile_error!(structure.path.span(), "structure must be of type `Api`");
-        }
-
-        let mut content = HashMap::new();
-        let mut endpoints: Option<Vec<Endpoint>> = None;
-        for field in structure.fields {
-            match field.member {
-                Member::Named(ident) => {
-                    let name = ident.to_string();
-                    if content.contains_key(&name) {
-                        return to_compile_error!(ident.span(), "is already defined");
-                    }
-                    if name == "endpoints" {
-                        match parse_endpoints(field.expr) {
-                            Ok(parse_endpoints) => endpoints = Some(parse_endpoints),
-                            Err(e) => return Err(e),
-                        };
-                    } else {
-                        match check_field(&name, &expr_to_str(&field.expr)) {
-                            Ok(value) => content.insert(name, value),
-                            Err(msg) => return to_compile_error!(field.expr.span(), msg),
-                        };
-                    }
-                }
-                _ => return to_compile_error!(field.span(), "field should be named"),
-            }
-        }
-
-        let app_name = match content.get("app_name") {
-            Some(app_name) => app_name,
-            None => return to_compile_error!(structure.path.span(), "missing field `app_name`"),
-        };
-        let forward_path = match content.get("forward_path") {
-            Some(forward_path) => forward_path,
-            None => {
-                return to_compile_error!(structure.path.span(), "missing field `forward_path`")
-            }
-        };
-        let host = match content.get("host") {
-            Some(host) => host,
-            None => return to_compile_error!(structure.path.span(), "missing field `host`"),
-        };
-        let mode = match content.get("mode") {
-            Some(mode) => mode,
-            None => return to_compile_error!(structure.path.span(), "missing field `mode`"),
-        };
-
-        let api = Api {
-            app_name: app_name.to_string(),
-            host: host.to_string(),
-            mode: ApiMode::from_str(mode).unwrap(),
-            forward_path: forward_path.to_string(),
-            endpoints,
-        };
-
-        match (&api.endpoints, &api.mode) {
-            (Some(_), ApiMode::ForwardAll) => {
-                return to_compile_error!(
-                    structure.path.span(),
-                    "mode `forward_all` doesn't allow endpoints list"
-                )
-            }
-            (None, ApiMode::ForwardStrict) => {
-                return to_compile_error!(
-                    structure.path.span(),
-                    "mode `forward_strict` must have endpoints list"
-                )
-            }
-            _ => (),
-        };
-
-        apis.insert(api.app_name.clone(), api);
+    for api in &apis {
+        api.check_fields()?;
     }
 
     Ok(apis)

@@ -1,17 +1,19 @@
-use std::cmp;
-use std::collections::{HashMap, HashSet};
+use std::collections::BTreeSet;
+use std::env;
 use std::iter;
+use std::{cmp, path::Path};
 
+use anyhow::bail;
 use proc_macro2::TokenStream;
 use quote::quote;
 use regex::{escape, Regex};
-use syn::{parse_macro_input, Expr};
+use syn::{parse_macro_input, LitStr};
 
 mod api;
 mod endpoint;
-mod util;
 
 use api::{parse_apis, Api, ApiMode};
+use endpoint::Endpoint;
 
 fn get_permission_check(
     api: &Api,
@@ -30,22 +32,24 @@ fn get_permission_check(
         },
         (Some(full_path), Some(method_str)) => {
             let re = Regex::new("\\{[^/]*\\}").unwrap();
-            for endpoint in api.endpoints.as_ref().unwrap() {
-                if endpoint.path == full_path {
-                    let perm_path = re.replace_all(&endpoint.path, "{}");
-                    let app = &api.app_name[1..];
-                    let perm = format!("{}::{}::{}", app, method_str, perm_path);
+            if let ApiMode::ForwardStrict(endpoints) = &api.mode {
+                for endpoint in endpoints {
+                    if endpoint.path == full_path {
+                        let perm_path = re.replace_all(&endpoint.path, "{}");
+                        let app = &api.app_name[1..];
+                        let perm = format!("{}::{}::{}", app, method_str, perm_path);
 
-                    return quote! {
-                        println!("checking perm {} for {}", #perm, &claims.token_id);
-                        match perm_lock.read().await.get(#perm) {
-                            Some(users) if users.contains(&claims.token_id) => (),
-                            _ => {
-                                return get_response(StatusCode::FORBIDDEN, &FORBIDDEN, &labels, &start_time, &req_size);
-                            },
-                        }
-                        println!("{} ({}) => {}", claims.preferred_username, claims.token_id, #perm);
-                    };
+                        return quote! {
+                            println!("checking perm {} for {}", #perm, &claims.token_id);
+                            match perm_lock.read().await.get(#perm) {
+                                Some(users) if users.contains(&claims.token_id) => (),
+                                _ => {
+                                    return get_response(StatusCode::FORBIDDEN, &FORBIDDEN, &labels, &start_time, &req_size);
+                                },
+                            }
+                            println!("{} ({}) => {}", claims.preferred_username, claims.token_id, #perm);
+                        };
+                    }
                 }
             }
             panic!("Could not find endpoint for path `{}`", full_path);
@@ -124,72 +128,36 @@ fn get_forward_request(
     }
 }
 
-fn check_chain_to(chain_to: &str, apis: &HashMap<String, Api>) -> Result<(), String> {
-    let app = &chain_to[..1 + chain_to[1..].find('/').unwrap()];
-    let path = &chain_to[app.len()..];
+fn check_for_conflicts(api: &Api) -> anyhow::Result<()> {
+    if let ApiMode::ForwardStrict(endpoints) = &api.mode {
+        let paths: BTreeSet<(String, String)> = endpoints
+            .iter()
+            .map(|e| (e.path.clone(), e.method.clone()))
+            .collect();
 
-    let api = match apis.get(app) {
-        Some(api) => api,
-        None => return Err(format!("chain_to: `{}` app doesn't exists", chain_to)),
-    };
+        if endpoints.len() != paths.len() {
+            bail!("duplicate endpoints in {}", api.app_name);
+        }
 
-    if api.mode != ApiMode::ForwardStrict {
-        return Err(format!(
-            "chain_to: `{}` app mode must be `forward_strict`",
-            chain_to
-        ));
-    }
-
-    for endpoint in api.endpoints.as_ref().unwrap() {
-        if endpoint.path == path {
-            if endpoint.chain_to != None {
-                return Err(format!(
-                    "chain_to: `{}` cannot be a chainned endpoint",
-                    chain_to
-                ));
+        let to_regex = Regex::new("\\\\\\{[^/]*\\\\\\}").unwrap();
+        for endpoint in endpoints {
+            let re = Regex::new(&format!(
+                "^{}$",
+                to_regex.replace_all(&escape(&endpoint.path), "[^/]+")
+            ))
+            .unwrap();
+            for (path_to_check, _) in &paths {
+                if *path_to_check != endpoint.path && re.is_match(&path_to_check) {
+                    bail!(
+                        "endpoint `{}` conflicts with `{}`",
+                        path_to_check,
+                        endpoint.path
+                    );
+                }
             }
-            if endpoint.method != "POST" {
-                return Err(format!("chain_to: `{}` must be POST endpoint", chain_to));
-            }
-            return Ok(());
         }
     }
 
-    Err(format!("chain_to: `{}` unknown endpoint", chain_to))
-}
-
-fn check_for_conflicts(api: &Api) -> Result<(), String> {
-    if api.mode == ApiMode::ForwardAll {
-        return Ok(());
-    }
-
-    let paths: HashSet<(String, String)> = api
-        .endpoints
-        .as_ref()
-        .unwrap()
-        .iter()
-        .map(|e| (e.path.clone(), e.method.clone()))
-        .collect();
-    if api.endpoints.as_ref().unwrap().len() != paths.len() {
-        return Err(format!("duplicate endpoints in {}", api.app_name));
-    }
-
-    let to_regex = Regex::new("\\\\\\{[^/]*\\\\\\}").unwrap();
-    for endpoint in api.endpoints.as_ref().unwrap() {
-        let re = Regex::new(&format!(
-            "^{}$",
-            to_regex.replace_all(&escape(&endpoint.path), "[^/]+")
-        ))
-        .unwrap();
-        for (path_to_check, _) in &paths {
-            if *path_to_check != endpoint.path && re.is_match(&path_to_check) {
-                return Err(format!(
-                    "endpoint `{}` conflicts with `{}`",
-                    path_to_check, endpoint.path
-                ));
-            }
-        }
-    }
     Ok(())
 }
 
@@ -225,7 +193,7 @@ fn get_common_prefix(paths: &Vec<&str>) -> Option<String> {
     }
 }
 
-fn get_trunc_path(paths: &HashSet<(String, String, String)>) -> Vec<&str> {
+fn get_trunc_path(paths: &BTreeSet<(String, String, String)>) -> Vec<&str> {
     let has_param = Regex::new("\\{[^/]*\\}").unwrap();
     let mut trunc_paths = Vec::new();
     for (path, _, _) in paths {
@@ -253,7 +221,7 @@ fn get_next_prefix(path: &str) -> &str {
 }
 
 fn handle_no_common_prefix(
-    paths: &HashSet<(String, String, String)>,
+    paths: &BTreeSet<(String, String, String)>,
     api: &Api,
     depth: usize,
 ) -> TokenStream {
@@ -262,8 +230,8 @@ fn handle_no_common_prefix(
     for (path, _, _) in paths {
         if !has_param_at_start(path) {
             let next_prefix = get_next_prefix(path);
-            let mut prefixed_paths = HashSet::new();
-            let mut reaming_paths = HashSet::new();
+            let mut prefixed_paths = BTreeSet::new();
+            let mut reaming_paths = BTreeSet::new();
             for (path_to_select, full_path, method) in paths {
                 if path_to_select == next_prefix {
                     let forward_request = get_forward_request(api, Some(full_path), Some(method));
@@ -304,7 +272,7 @@ fn handle_no_common_prefix(
             return output;
         }
     }
-    let mut new_paths = HashSet::new();
+    let mut new_paths = BTreeSet::new();
     for (path, full_path, method) in paths {
         let skip_size = path.find("/").unwrap();
         if !has_param_at_start(path) {
@@ -337,7 +305,7 @@ fn handle_no_common_prefix(
 }
 
 fn generate_case_path_tree_test(
-    paths: &HashSet<(String, String, String)>,
+    paths: &BTreeSet<(String, String, String)>,
     api: &Api,
     depth: usize,
 ) -> TokenStream {
@@ -353,7 +321,7 @@ fn generate_case_path_tree_test(
             output.extend(handle_no_common_prefix(paths, api, depth));
         }
         Some(common_prefix) => {
-            let mut new_paths = HashSet::new();
+            let mut new_paths = BTreeSet::new();
             for (path, full_path, method) in paths {
                 if &common_prefix == path {
                     let forward_request = get_forward_request(api, Some(full_path), Some(method));
@@ -387,10 +355,10 @@ fn generate_case_path_tree_test(
     output
 }
 
-fn generate_forward_strict(api: &Api) -> TokenStream {
+fn generate_forward_strict(api: &Api, endpoints: &[Endpoint]) -> TokenStream {
     let app_name = &api.app_name;
-    let mut paths: HashSet<(String, String, String)> = HashSet::new();
-    for endpoint in api.endpoints.as_ref().unwrap() {
+    let mut paths: BTreeSet<(String, String, String)> = BTreeSet::new();
+    for endpoint in endpoints {
         paths.insert((
             endpoint.path.clone(),
             endpoint.path.clone(),
@@ -407,42 +375,46 @@ fn generate_forward_strict(api: &Api) -> TokenStream {
     }
 }
 
+fn include_file(path: &Path) -> String {
+    let root = env::var("CARGO_MANIFEST_DIR").unwrap_or_else(|_| ".".into());
+    let root_path = Path::new(&root);
+
+    let full_path = root_path.join(path);
+
+    match std::fs::read_to_string(&full_path) {
+        Ok(s) => s,
+        Err(e) => panic!("Failed to read `{}`: {}", full_path.display(), e),
+    }
+}
+
 #[proc_macro]
 pub fn gateway_config(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
-    let input = parse_macro_input!(input as Expr);
+    let input = parse_macro_input!(input as LitStr);
 
-    let apis = match parse_apis(input) {
+    let file_path = input.value();
+    let file_path = Path::new(&file_path);
+
+    let file_content = include_file(file_path);
+
+    let apis = match parse_apis(&file_content) {
         Ok(apis) => apis,
-        Err(e) => {
-            return e;
+        Err(err) => {
+            return proc_macro::TokenStream::from(
+                syn::Error::new(input.span(), format!("error deserializing config: {}", err))
+                    .to_compile_error(),
+            )
         }
     };
 
     let mut cases = TokenStream::new();
-    for api in apis.values() {
+    for api in apis {
         match check_for_conflicts(&api) {
             Ok(_) => (),
             Err(msg) => panic!("{}", msg),
         };
 
-        if api.mode == ApiMode::ForwardStrict {
-            for endpoint in api.endpoints.as_ref().unwrap() {
-                match &endpoint.chain_to {
-                    Some(chain_to) => {
-                        for path in chain_to {
-                            match check_chain_to(path, &apis) {
-                                Ok(_) => (),
-                                Err(msg) => panic!("{}", msg),
-                            }
-                        }
-                    }
-                    None => (),
-                }
-            }
-        }
-
-        cases.extend(match api.mode {
-            ApiMode::ForwardStrict => generate_forward_strict(&api),
+        cases.extend(match &api.mode {
+            ApiMode::ForwardStrict(endpoints) => generate_forward_strict(&api, &endpoints),
             ApiMode::ForwardAll => generate_forward_all(&api),
         });
     }
@@ -454,5 +426,5 @@ pub fn gateway_config(input: proc_macro::TokenStream) -> proc_macro::TokenStream
         }
     };
 
-    proc_macro::TokenStream::from(expanded)
+    expanded.into()
 }
