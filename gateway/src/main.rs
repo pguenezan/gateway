@@ -327,12 +327,9 @@ async fn response(
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    match init_runtime_config() {
-        Err(e) => {
-            eprintln!("runtime config is not valid: {}", e);
-            exit(1);
-        }
-        _ => (),
+    if let Err(e) = init_runtime_config() {
+        eprintln!("runtime config is not valid: {}", e);
+        exit(1);
     };
     init_token_sources();
 
@@ -371,7 +368,9 @@ async fn main() -> Result<()> {
 
     tokio::join!(
         async {
-            server.await;
+            if let Err(e) = server.await {
+                eprintln!("fail to run server: {}", e);
+            }
         },
         async {
             update_perm.await;

@@ -21,10 +21,10 @@ pub struct Claims {
     pub token_id: String,
 }
 
-fn get_audience(aud: String) -> Option<HashSet<String>> {
+fn get_audience(aud: String) -> HashSet<String> {
     let mut auds = HashSet::new();
     auds.insert(aud);
-    Some(auds)
+    auds
 }
 
 struct TokenSource {
@@ -42,15 +42,15 @@ impl TokenSource {
             algorithms: vec![Algorithm::RS256],
             validate_nbf: false,
             iss: Some(auth_source.issuer.to_string()),
-            aud: get_audience(auth_source.audience.to_string()),
+            aud: Some(get_audience(auth_source.audience.to_string())),
             sub: None,
         };
         let public_key = DecodingKey::from_rsa_pem(auth_source.public_key.as_bytes()).unwrap();
         Self {
             name: auth_source.name.to_string(),
             token_type: auth_source.token_type.to_string(),
-            validation: validation,
-            public_key: public_key,
+            validation,
+            public_key,
         }
     }
 }
@@ -67,12 +67,9 @@ pub fn init_token_sources() {
         .iter()
         .map(|auth_source| TokenSource::new(auth_source))
         .collect();
-    match TOKEN_SOURCES.set(token_sources) {
-        Err(_) => {
-            eprintln!("fail to set TOKEN_SOURCES");
-            exit(1);
-        }
-        _ => (),
+    if TOKEN_SOURCES.set(token_sources).is_err() {
+        eprintln!("fail to set TOKEN_SOURCES");
+        exit(1);
     }
 }
 

@@ -52,9 +52,9 @@ pub async fn get_perm() -> Result<(
                         for user_id in perm.user_id.iter() {
                             user_role
                                 .entry(user_id.to_string())
-                                .or_insert(HashMap::new())
+                                .or_insert_with(HashMap::new)
                                 .entry(app_name.to_string())
-                                .or_insert(Vec::new())
+                                .or_insert_with(Vec::new)
                                 .push(role_name.to_string());
                         }
                     }
@@ -85,7 +85,7 @@ pub async fn get_perm() -> Result<(
                 .fold(String::new(), |acc, perm| acc + "," + perm);
             user_role_final
                 .entry(user_sub.to_string())
-                .or_insert(HashMap::new())
+                .or_insert_with(HashMap::new)
                 .insert(app_name.to_string(), perm_str[1..].to_string());
         }
     }
