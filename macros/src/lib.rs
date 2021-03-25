@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::BTreeSet;
 use std::env;
 use std::iter;
 use std::{cmp, path::Path};
@@ -130,7 +130,7 @@ fn get_forward_request(
 
 fn check_for_conflicts(api: &Api) -> anyhow::Result<()> {
     if let ApiMode::ForwardStrict(endpoints) = &api.mode {
-        let paths: HashSet<(String, String)> = endpoints
+        let paths: BTreeSet<(String, String)> = endpoints
             .iter()
             .map(|e| (e.path.clone(), e.method.clone()))
             .collect();
@@ -193,7 +193,7 @@ fn get_common_prefix(paths: &Vec<&str>) -> Option<String> {
     }
 }
 
-fn get_trunc_path(paths: &HashSet<(String, String, String)>) -> Vec<&str> {
+fn get_trunc_path(paths: &BTreeSet<(String, String, String)>) -> Vec<&str> {
     let has_param = Regex::new("\\{[^/]*\\}").unwrap();
     let mut trunc_paths = Vec::new();
     for (path, _, _) in paths {
@@ -221,7 +221,7 @@ fn get_next_prefix(path: &str) -> &str {
 }
 
 fn handle_no_common_prefix(
-    paths: &HashSet<(String, String, String)>,
+    paths: &BTreeSet<(String, String, String)>,
     api: &Api,
     depth: usize,
 ) -> TokenStream {
@@ -230,8 +230,8 @@ fn handle_no_common_prefix(
     for (path, _, _) in paths {
         if !has_param_at_start(path) {
             let next_prefix = get_next_prefix(path);
-            let mut prefixed_paths = HashSet::new();
-            let mut reaming_paths = HashSet::new();
+            let mut prefixed_paths = BTreeSet::new();
+            let mut reaming_paths = BTreeSet::new();
             for (path_to_select, full_path, method) in paths {
                 if path_to_select == next_prefix {
                     let forward_request = get_forward_request(api, Some(full_path), Some(method));
@@ -272,7 +272,7 @@ fn handle_no_common_prefix(
             return output;
         }
     }
-    let mut new_paths = HashSet::new();
+    let mut new_paths = BTreeSet::new();
     for (path, full_path, method) in paths {
         let skip_size = path.find("/").unwrap();
         if !has_param_at_start(path) {
@@ -305,7 +305,7 @@ fn handle_no_common_prefix(
 }
 
 fn generate_case_path_tree_test(
-    paths: &HashSet<(String, String, String)>,
+    paths: &BTreeSet<(String, String, String)>,
     api: &Api,
     depth: usize,
 ) -> TokenStream {
@@ -321,7 +321,7 @@ fn generate_case_path_tree_test(
             output.extend(handle_no_common_prefix(paths, api, depth));
         }
         Some(common_prefix) => {
-            let mut new_paths = HashSet::new();
+            let mut new_paths = BTreeSet::new();
             for (path, full_path, method) in paths {
                 if &common_prefix == path {
                     let forward_request = get_forward_request(api, Some(full_path), Some(method));
@@ -357,7 +357,7 @@ fn generate_case_path_tree_test(
 
 fn generate_forward_strict(api: &Api, endpoints: &[Endpoint]) -> TokenStream {
     let app_name = &api.app_name;
-    let mut paths: HashSet<(String, String, String)> = HashSet::new();
+    let mut paths: BTreeSet<(String, String, String)> = BTreeSet::new();
     for endpoint in endpoints {
         paths.insert((
             endpoint.path.clone(),
@@ -407,7 +407,7 @@ pub fn gateway_config(input: proc_macro::TokenStream) -> proc_macro::TokenStream
     };
 
     let mut cases = TokenStream::new();
-    for api in apis.values() {
+    for api in apis {
         match check_for_conflicts(&api) {
             Ok(_) => (),
             Err(msg) => panic!("{}", msg),

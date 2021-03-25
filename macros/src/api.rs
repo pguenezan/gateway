@@ -77,17 +77,12 @@ impl Api {
     }
 }
 
-pub fn parse_apis(yaml_content: &str) -> anyhow::Result<HashMap<String, Api>> {
+pub fn parse_apis(yaml_content: &str) -> anyhow::Result<Vec<Api>> {
     let apis: Vec<Api> = serde_yaml::from_str(yaml_content)?;
 
     for api in &apis {
         api.check_fields()?;
     }
-
-    let apis = apis
-        .into_iter()
-        .map(|api| (api.app_name.clone(), api))
-        .collect();
 
     Ok(apis)
 }
