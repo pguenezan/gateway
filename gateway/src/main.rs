@@ -62,22 +62,20 @@ fn commit_metrics(
     HTTP_REQ_SIZE_HISTOGRAM_LOW
         .with_label_values(&full_labels)
         .observe(req_size.lower() as f64);
-    match req_size.upper() {
-        Some(size) => HTTP_REQ_SIZE_HISTOGRAM_HIGH
+    if let Some(size) = req_size.upper() {
+        HTTP_REQ_SIZE_HISTOGRAM_HIGH
             .with_label_values(&full_labels)
-            .observe(size as f64),
-        _ => (),
-    };
+            .observe(size as f64)
+    }
 
     HTTP_RES_SIZE_HISTOGRAM_LOW
         .with_label_values(&full_labels)
         .observe(res_size.lower() as f64);
-    match res_size.upper() {
-        Some(size) => HTTP_RES_SIZE_HISTOGRAM_HIGH
+    if let Some(size) = req_size.upper() {
+        HTTP_RES_SIZE_HISTOGRAM_HIGH
             .with_label_values(&full_labels)
-            .observe(size as f64),
-        _ => (),
-    };
+            .observe(size as f64)
+    }
 }
 
 #[inline(always)]
@@ -93,8 +91,7 @@ fn get_response(
         .header(ACCESS_CONTROL_ALLOW_ORIGIN, "*")
         .header(ACCESS_CONTROL_ALLOW_HEADERS, "*")
         .header(ACCESS_CONTROL_ALLOW_METHODS, "*")
-        .body(content.into())
-        .unwrap();
+        .body(content.into())?;
 
     commit_metrics(
         labels,
