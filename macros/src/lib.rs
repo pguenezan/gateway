@@ -175,7 +175,7 @@ fn get_prefix_size(a: &str, b: &str) -> usize {
     a.chars().zip(b.chars()).take_while(|(x, y)| x == y).count()
 }
 
-fn get_common_prefix(paths: &Vec<&str>) -> Option<String> {
+fn get_common_prefix(paths: &[&str]) -> Option<String> {
     match paths.len() {
         0 => None,
         1 => Some(paths[0].to_string()),
@@ -241,9 +241,9 @@ fn handle_no_common_prefix(
                             #forward_request
                         }
                     });
-                } else if path_to_select.starts_with(next_prefix) {
+                } else if let Some(stripped) = path_to_select.strip_prefix(next_prefix) {
                     prefixed_paths.insert((
-                        path_to_select[next_prefix.len()..].to_string(),
+                        stripped.to_string(),
                         full_path.to_string(),
                         method.to_string(),
                     ));
@@ -255,7 +255,7 @@ fn handle_no_common_prefix(
                     ));
                 }
             }
-            if prefixed_paths.len() != 0 {
+            if !prefixed_paths.is_empty() {
                 let reaming = handle_no_common_prefix(&prefixed_paths, api, depth + 2);
                 output.extend(quote!{
                     if forwarded_path.starts_with(#next_prefix) {
@@ -266,7 +266,7 @@ fn handle_no_common_prefix(
                     }
                 });
             }
-            if reaming_paths.len() != 0 {
+            if !reaming_paths.is_empty() {
                 output.extend(generate_case_path_tree_test(&reaming_paths, api, depth));
             }
             return output;
@@ -274,7 +274,7 @@ fn handle_no_common_prefix(
     }
     let mut new_paths = BTreeSet::new();
     for (path, full_path, method) in paths {
-        let skip_size = path.find("/").unwrap();
+        let skip_size = path.find('/').unwrap();
         if !has_param_at_start(path) {
             panic!(
                 "`{} `(part of `{}`) should starts with a capture",
@@ -310,7 +310,7 @@ fn generate_case_path_tree_test(
     depth: usize,
 ) -> TokenStream {
     let mut output = TokenStream::new();
-    if paths.len() == 0 {
+    if paths.is_empty() {
         return output;
     }
 
@@ -339,7 +339,7 @@ fn generate_case_path_tree_test(
                     method.to_string(),
                 ));
             }
-            if new_paths.len() != 0 {
+            if !new_paths.is_empty() {
                 let reaming = handle_no_common_prefix(&new_paths, api, depth + 2);
                 output.extend(quote!{
                     if forwarded_path.starts_with(#common_prefix) {
