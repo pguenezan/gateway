@@ -109,44 +109,52 @@ fn get_response(
 
 const LABEL_NAMES: [&str; 4] = ["app", "path", "method", "status_code"];
 
+fn get_metric_name(name: &str) -> String {
+    format!(
+        "gateway_{}_http_{}",
+        RUNTIME_CONFIG.get().unwrap().metrics_prefix,
+        name
+    )
+}
+
 lazy_static! {
     static ref HTTP_COUNTER: CounterVec = register_counter_vec!(
         opts!(
-            "gateway_http_requests_total",
+            get_metric_name("requests_total"),
             "Number of HTTP requests made."
         ),
         &LABEL_NAMES
     )
     .unwrap();
     static ref HTTP_REQ_LAT_HISTOGRAM: HistogramVec = register_histogram_vec!(
-        "gateway_http_request_duration_seconds",
+        get_metric_name("request_duration_seconds"),
         "The HTTP request latencies in seconds.",
         &LABEL_NAMES
     )
     .unwrap();
     static ref HTTP_REQ_SIZE_HISTOGRAM_LOW: HistogramVec = register_histogram_vec!(
-        "gateway_http_request_size_low_bytes",
+        get_metric_name("request_size_low_bytes"),
         "The HTTP request size in bytes (lower bound).",
         &LABEL_NAMES,
         exponential_buckets(1.0, 2.0, 35).unwrap()
     )
     .unwrap();
     static ref HTTP_REQ_SIZE_HISTOGRAM_HIGH: HistogramVec = register_histogram_vec!(
-        "gateway_http_request_size_high_bytes",
+        get_metric_name("request_size_high_bytes"),
         "The HTTP request size in bytes (upper bound).",
         &LABEL_NAMES,
         exponential_buckets(1.0, 2.0, 35).unwrap()
     )
     .unwrap();
     static ref HTTP_RES_SIZE_HISTOGRAM_LOW: HistogramVec = register_histogram_vec!(
-        "gateway_http_response_size_low_bytes",
+        get_metric_name("response_size_low_bytes"),
         "The HTTP response size in bytes (lower bound).",
         &LABEL_NAMES,
         exponential_buckets(1.0, 2.0, 35).unwrap()
     )
     .unwrap();
     static ref HTTP_RES_SIZE_HISTOGRAM_HIGH: HistogramVec = register_histogram_vec!(
-        "gateway_http_response_size_high_bytes",
+        get_metric_name("response_size_high_bytes"),
         "The HTTP response size in bytes (upper bound).",
         &LABEL_NAMES,
         exponential_buckets(1.0, 2.0, 35).unwrap()

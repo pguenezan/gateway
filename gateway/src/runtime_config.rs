@@ -29,6 +29,7 @@ pub struct AuthSource {
 #[derive(Debug, Deserialize)]
 pub struct RuntimeConfig {
     pub bind_to: String,
+    pub metrics_prefix: String,
     pub perm_uris: Vec<PermUri>,
     pub perm_update_delay: u64,
     pub auth_sources: Vec<AuthSource>,
