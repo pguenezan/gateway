@@ -296,7 +296,6 @@ fn handle_no_common_prefix(
                 println!("{}skipping until '/' (for capture of '{}'", #shift, #rest_of_path);
                 forwarded_path = &forwarded_path[slash_index..];
                 #reaming
-                return get_response(StatusCode::NOT_FOUND, &NOTFOUND, &labels, &start_time, &req_size);
             },
             None => { return get_response(StatusCode::NOT_FOUND, &NOTFOUND, &labels, &start_time, &req_size); },
         }
