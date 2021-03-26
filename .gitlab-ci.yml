@@ -4,6 +4,19 @@ stages:
   - build_base
   - build
 
+variables:
+  CARGO_HOME: "${CI_PROJECT_DIR}/.cargo"
+cache:
+  key:
+    files:
+      - Cargo.lock
+  paths:
+    # https://doc.rust-lang.org/cargo/guide/cargo-home.html#caching-the-cargo-home-in-ci
+    - .cargo/bin
+    - .cargo/registry/index
+    - .cargo/registry/cache
+    - .cargo/git/db
+
 format:
   image: rust
   stage: lints
