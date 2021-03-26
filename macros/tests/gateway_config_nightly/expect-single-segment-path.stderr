@@ -1,5 +1,0 @@
-error: a single path segment is expected
-  --> $DIR/expect-single-segment-path.rs:17:13
-   |
-17 |             my::path::Api {
-   |             ^^^^^^^^^^^^^
