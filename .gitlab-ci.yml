@@ -1,7 +1,22 @@
 stages:
+  - lints
   - test
   - build_base
   - build
+
+format:
+  image: rustlang/rust
+  stage: lints
+  script:
+    - rustup component add rustfmt
+    - cargo fmt -- --check
+
+clippy:
+  image: rustlang/rust
+  stage: lints
+  script:
+    - rustup component add clippy
+    - cargo clippy --all -- -D warnings
 
 test:
   image: rustlang/rust:nightly
