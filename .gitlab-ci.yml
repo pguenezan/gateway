@@ -4,18 +4,21 @@ stages:
   - build_base
   - build
 
-variables:
-  CARGO_HOME: "${CI_PROJECT_DIR}/.cargo"
-cache:
-  key:
-    files:
-      - Cargo.lock
-  paths:
-    # https://doc.rust-lang.org/cargo/guide/cargo-home.html#caching-the-cargo-home-in-ci
-    - .cargo/bin
-    - .cargo/registry/index
-    - .cargo/registry/cache
-    - .cargo/git/db
+
+
+.cache:
+  variables:
+    CARGO_HOME: "${CI_PROJECT_DIR}/.cargo"
+  cache:
+    key:
+      files:
+        - Cargo.lock
+    paths:
+      # https://doc.rust-lang.org/cargo/guide/cargo-home.html#caching-the-cargo-home-in-ci
+      - .cargo/bin
+      - .cargo/registry/index
+      - .cargo/registry/cache
+      - .cargo/git/db
 
 format:
   image: rust
@@ -26,6 +29,7 @@ format:
     - cargo fmt -- --check
 
 clippy:
+  extends: .cache
   image: rust
   stage: lints
   before_script:
@@ -34,6 +38,7 @@ clippy:
     - cargo clippy --all -- -D warnings
 
 test:
+  extends: .cache
   image: rust
   stage: test
   script:
