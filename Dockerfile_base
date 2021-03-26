@@ -1,6 +1,7 @@
+# -*- mode: dockerfile; -*-
 # vim: ft=dockerfile
 
-FROM rustlang/rust:nightly as builder
+FROM rust
 WORKDIR /usr/src
 
 RUN apt-get update && \
