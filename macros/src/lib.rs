@@ -1,3 +1,7 @@
+//! Codegen macro generating the dispatch code between different APIs
+
+#![warn(missing_docs)]
+
 use std::collections::BTreeSet;
 use std::env;
 use std::iter;
@@ -386,6 +390,13 @@ fn include_file(path: &Path) -> String {
     }
 }
 
+// TODO: add sample config and corresponding produced code
+/// Procedural macro generating dispatch code for various APIs, provided via the configuration.
+///
+/// This macro takes as input a relative path to a YAML file containing API information. The path
+/// will not be interpreted relatively to the macro's call site, but relatively to
+/// `CARGO_MANIFEST_DIR`, i.e. relatively to the directory that contains the current crate's
+/// `Cargo.toml` file (**NOT** the workspace's `Cargo.toml` file).
 #[proc_macro]
 pub fn gateway_config(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let input = parse_macro_input!(input as LitStr);
