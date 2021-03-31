@@ -28,9 +28,27 @@ type PermList = Vec<Perm>;
 
 async fn fetch_perm(perm_uri: &PermUri) -> Option<PermList> {
     let client = Client::new();
-    let res = client.get(perm_uri.uri.clone()).await.ok()?;
-    let body = hyper::body::aggregate(res).await.ok()?;
-    serde_json::from_reader(body.reader()).ok()?
+    let res = match client.get(perm_uri.uri.clone()).await {
+        Ok(res) => res,
+        Err(e) => {
+            eprintln!("fail {}", e);
+            return None;
+        }
+    };
+    let body = match hyper::body::aggregate(res).await {
+        Ok(body) => body,
+        Err(e) => {
+            eprintln!("fail {}", e);
+            return None;
+        }
+    };
+    match serde_json::from_reader(body.reader()) {
+        Ok(json) => return json,
+        Err(e) => {
+            eprintln!("fail {}", e);
+            return None;
+        }
+    }
 }
 
 pub async fn get_perm() -> Result<(
