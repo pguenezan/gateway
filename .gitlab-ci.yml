@@ -1,16 +1,47 @@
 stages:
+  - lints
   - test
   - build_base
   - build
 
+
+
+.cache:
+  variables:
+    CARGO_HOME: "${CI_PROJECT_DIR}/.cargo"
+  cache:
+    key:
+      files:
+        - Cargo.lock
+    paths:
+      # https://doc.rust-lang.org/cargo/guide/cargo-home.html#caching-the-cargo-home-in-ci
+      - .cargo/bin
+      - .cargo/registry/index
+      - .cargo/registry/cache
+      - .cargo/git/db
+
+format:
+  image: rust
+  stage: lints
+  before_script:
+    - rustup component add rustfmt
+  script:
+    - cargo fmt -- --check
+
+clippy:
+  extends: .cache
+  image: rust
+  stage: lints
+  before_script:
+    - rustup component add clippy
+  script:
+    - cargo clippy --all -- -D warnings
+
 test:
-  image: rustlang/rust:nightly
+  extends: .cache
+  image: rust
   stage: test
   script:
-    - echo "${PUBLIC_KEY_SHORT}" | base64 -d > gateway/src/public_key_short.pem
-    - echo "${PUBLIC_KEY_LONG}" | base64 -d > gateway/src/public_key_long.pem
-    - touch gateway/src/public_key_short_2.pem
-    - touch gateway/src/public_key_long_2.pem
     - cargo test
 
 docker_build_base:
@@ -21,10 +52,6 @@ docker_build_base:
   before_script:
     - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" $CI_REGISTRY
   script:
-    - echo "${PUBLIC_KEY_SHORT}" | base64 -d > gateway/src/public_key_short.pem
-    - echo "${PUBLIC_KEY_LONG}" | base64 -d > gateway/src/public_key_long.pem
-    - touch gateway/src/public_key_short_2.pem
-    - touch gateway/src/public_key_long_2.pem
     - docker build --cache-from "$CI_REGISTRY_IMAGE:base_$CI_COMMIT_REF_SLUG" -t "$CI_REGISTRY_IMAGE:base_$CI_COMMIT_REF_SLUG" -f Dockerfile_base .
     - docker push "$CI_REGISTRY_IMAGE:base_$CI_COMMIT_REF_SLUG"
 
@@ -37,9 +64,5 @@ docker_build:
   before_script:
     - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" $CI_REGISTRY
   script:
-    - echo "${PUBLIC_KEY_SHORT}" | base64 -d > gateway/src/public_key_short.pem
-    - echo "${PUBLIC_KEY_LONG}" | base64 -d > gateway/src/public_key_long.pem
-    - touch gateway/src/public_key_short_2.pem
-    - touch gateway/src/public_key_long_2.pem
     - docker build --cache-from "$CI_REGISTRY_IMAGE:$CI_COMMIT_REF_SLUG" -t "$CI_REGISTRY_IMAGE:$CI_COMMIT_REF_SLUG" --build-arg BRANCH=${CI_COMMIT_BRANCH} .
     - docker push "$CI_REGISTRY_IMAGE:$CI_COMMIT_REF_SLUG"

@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use anyhow::{anyhow, bail};
 use serde::Deserialize;
 use url::Url;

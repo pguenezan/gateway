@@ -1,5 +1,0 @@
-error: structure must be of type `Api`
- --> $DIR/expect-api.rs:6:13
-  |
-6 |             NotApi {
-  |             ^^^^^^
