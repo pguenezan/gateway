@@ -150,8 +150,11 @@ fn check_for_conflicts(api: &Api) -> anyhow::Result<()> {
                 to_regex.replace_all(&escape(&endpoint.path), "[^/]+")
             ))
             .unwrap();
-            for (path_to_check, _) in &paths {
-                if *path_to_check != endpoint.path && re.is_match(&path_to_check) {
+            for (path_to_check, method_to_check) in &paths {
+                if *path_to_check != endpoint.path
+                    && re.is_match(&path_to_check)
+                    && method_to_check == &endpoint.method
+                {
                     bail!(
                         "endpoint `{}` conflicts with `{}`",
                         path_to_check,
