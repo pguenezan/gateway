@@ -23,6 +23,9 @@ use prometheus::{
     HistogramVec, TextEncoder,
 };
 
+#[macro_use]
+extern crate log;
+
 mod auth;
 use auth::{get_claims, init_token_sources, Claims};
 
@@ -273,7 +276,7 @@ async fn response(
 
     let authorization = match req.headers().get(AUTHORIZATION) {
         None => {
-            println!("no Authorization header");
+            debug!("no Authorization header");
             return get_response(
                 StatusCode::FORBIDDEN,
                 &FORBIDDEN,
@@ -284,7 +287,7 @@ async fn response(
         }
         Some(authorization) => match authorization.to_str() {
             Err(e) => {
-                println!("error: {:#?}", e);
+                debug!("error in authorization: {:#?}", e);
                 return get_response(
                     StatusCode::FORBIDDEN,
                     &FORBIDDEN,
@@ -299,7 +302,7 @@ async fn response(
     let (claims, token_type) = match get_claims(authorization).await {
         Some(claims) => claims,
         None => {
-            println!("no claims");
+            debug!("no or missing claimsin authorization");
             return get_response(
                 StatusCode::FORBIDDEN,
                 &FORBIDDEN,
@@ -336,7 +339,7 @@ async fn response(
 #[tokio::main]
 async fn main() -> Result<()> {
     if let Err(e) = init_runtime_config() {
-        eprintln!("runtime config is not valid: {}", e);
+        error!("runtime config is not valid: {}", e);
         exit(1);
     };
     init_token_sources();
@@ -344,7 +347,7 @@ async fn main() -> Result<()> {
     let addr: SocketAddr = match RUNTIME_CONFIG.get().unwrap().bind_to.parse() {
         Ok(addr) => addr,
         Err(_) => {
-            eprintln!("bind_to is not valid");
+            error!("bind_to is not valid");
             exit(1);
         }
     };
@@ -372,12 +375,12 @@ async fn main() -> Result<()> {
     });
 
     let server = Server::bind(&addr).serve(make_service);
-    println!("Listening on http://{}", addr);
+    info!("Listening on http://{}", addr);
 
     tokio::join!(
         async {
             if let Err(e) = server.await {
-                eprintln!("fail to run server: {}", e);
+                error!("fail to run server: {}", e);
             }
         },
         async {

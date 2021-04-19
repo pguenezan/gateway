@@ -68,7 +68,7 @@ pub fn init_token_sources() {
         .map(|auth_source| TokenSource::new(auth_source))
         .collect();
     if TOKEN_SOURCES.set(token_sources).is_err() {
-        eprintln!("fail to set TOKEN_SOURCES");
+        error!("fail to set TOKEN_SOURCES");
         exit(1);
     }
 }
@@ -85,7 +85,7 @@ pub async fn get_claims(authorization: &str) -> Option<(Claims, String)> {
         ) {
             Ok(token) => return Some((token.claims, token_source.token_type.to_string())),
             Err(e) => {
-                println!("{} {}", token_source.name, e);
+                error!("{} {}", token_source.name, e);
             }
         }
     }

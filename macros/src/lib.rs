@@ -44,14 +44,14 @@ fn get_permission_check(
                         let perm = format!("{}::{}::{}", app, method_str, perm_path);
 
                         return quote! {
-                            println!("checking perm {} for {}", #perm, &claims.token_id);
+                            debug!("checking perm {} for {}", #perm, &claims.token_id);
                             match perm_lock.read().await.get(#perm) {
                                 Some(users) if users.contains(&claims.token_id) => (),
                                 _ => {
                                     return get_response(StatusCode::FORBIDDEN, &FORBIDDEN, &labels, &start_time, &req_size);
                                 },
                             }
-                            println!("{} ({}) => {}", claims.preferred_username, claims.token_id, #perm);
+                            debug!("{} ({}) => {}", claims.preferred_username, claims.token_id, #perm);
                         };
                     }
                 }
@@ -80,7 +80,7 @@ fn get_forward_request(
         },
         (Some(full_path), Some(method_str)) => quote! {
             let local_labels = [#app_name, #full_path, #method_str];
-            println!("local_labels = {:?}", local_labels);
+            debug!("local_labels = {:?}", local_labels);
             commit_metrics(&local_labels, &start_time, response.status(), &req_size, &response.size_hint());
         },
         (_, _) => {
@@ -104,7 +104,7 @@ fn get_forward_request(
     quote! {
         #check_perm
         let uri_string = format!(concat!(#host, "{}"), forwarded_uri);
-        println!("{}: {}", method_str, uri_string);
+        debug!("{}: {}", method_str, uri_string);
         match uri_string.parse() {
             Ok(uri) => *req.uri_mut() = uri,
             Err(_) => { return get_response(StatusCode::NOT_FOUND, &NOTFOUND, &labels, &start_time, &req_size); },
@@ -122,10 +122,11 @@ fn get_forward_request(
             Ok(mut response) => {
                 inject_cors(response.headers_mut());
                 #commit
+                info!("user: {} ({}, {}), {} {} - {}", claims.preferred_username, claims.token_id, claims.sub, method_str, uri_string, response.status());
                 return Ok(response)
             },
             Err(error) => {
-                println!("502 for {}: {:?}", uri_string, error);
+                warn!("502 for {}: {:?}", uri_string, error);
                 #bad_gateway
             },
         }
@@ -244,7 +245,7 @@ fn handle_no_common_prefix(
                     let forward_request = get_forward_request(api, Some(full_path), Some(method));
                     output.extend(quote! {
                         if forwarded_path == #path_to_select && method_str == #method {
-                            println!("{}match full '{}'", #shift, #path_to_select);
+                            trace!("{}match full '{}'", #shift, #path_to_select);
                             #forward_request
                         }
                     });
@@ -266,7 +267,7 @@ fn handle_no_common_prefix(
                 let reaming = handle_no_common_prefix(&prefixed_paths, api, depth + 2);
                 output.extend(quote!{
                     if forwarded_path.starts_with(#next_prefix) {
-                        println!("{}match '{}'", #shift, #next_prefix);
+                        trace!("{}match '{}'", #shift, #next_prefix);
                         forwarded_path = &forwarded_path[#next_prefix.len()..];
                         #reaming
                         return get_response(StatusCode::NOT_FOUND, &NOTFOUND, &labels, &start_time, &req_size);
@@ -300,7 +301,7 @@ fn handle_no_common_prefix(
         match forwarded_path.find('/') {
             Some(0) => { return get_response(StatusCode::NOT_FOUND, &NOTFOUND, &labels, &start_time, &req_size); },
             Some(slash_index) => {
-                println!("{}skipping until '/' (for capture of '{}'", #shift, #rest_of_path);
+                trace!("{}skipping until '/' (for capture of '{}'", #shift, #rest_of_path);
                 forwarded_path = &forwarded_path[slash_index..];
                 #reaming
             },
@@ -333,7 +334,7 @@ fn generate_case_path_tree_test(
                     let forward_request = get_forward_request(api, Some(full_path), Some(method));
                     output.extend(quote! {
                         if forwarded_path == #path && method_str == #method {
-                            println!("{}match full '{}'", #shift, #path);
+                            trace!("{}match full '{}'", #shift, #path);
                             #forward_request
                         }
                     });
@@ -349,7 +350,7 @@ fn generate_case_path_tree_test(
                 let reaming = handle_no_common_prefix(&new_paths, api, depth + 2);
                 output.extend(quote!{
                     if forwarded_path.starts_with(#common_prefix) {
-                        println!("{}match '{}'", #shift, #common_prefix);
+                        trace!("{}match '{}'", #shift, #common_prefix);
                         forwarded_path = &forwarded_path[#common_prefix.len()..];
                         #reaming
                         return get_response(StatusCode::NOT_FOUND, &NOTFOUND, &labels, &start_time, &req_size);
@@ -374,7 +375,7 @@ fn generate_forward_strict(api: &Api, endpoints: &[Endpoint]) -> TokenStream {
     let cases = generate_case_path_tree_test(&paths, &api, 2);
     quote! {
         #app_name => {
-            println!("match {} => ({}, {})", #app_name, forwarded_path, method_str);
+            trace!("match {} => ({}, {})", #app_name, forwarded_path, method_str);
             #cases
             return get_response(StatusCode::NOT_FOUND, &NOTFOUND, &labels, &start_time, &req_size);
         },
