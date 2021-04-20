@@ -338,6 +338,7 @@ async fn response(
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    env_logger::init();
     if let Err(e) = init_runtime_config() {
         error!("runtime config is not valid: {}", e);
         exit(1);
