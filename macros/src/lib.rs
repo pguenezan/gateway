@@ -2,6 +2,8 @@
 
 #![warn(missing_docs)]
 
+// NOTE: We use BTrees instead of hashtables for reproducibility (items are always sorted
+//       lexicographically)
 use std::collections::BTreeSet;
 use std::env;
 use std::iter;
