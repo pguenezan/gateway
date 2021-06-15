@@ -382,6 +382,10 @@ fn generate_forward_strict(api: &Api, endpoints: &[Endpoint]) -> TokenStream {
     }
 }
 
+/// Returns the content of the file passed as argument.
+///
+/// The file path is interpreted relative to the `CARGO_MANIFEST_DIR` variable, which points at the
+/// cargo project's root
 fn include_file(path: &Path) -> String {
     let root = env::var("CARGO_MANIFEST_DIR").unwrap_or_else(|_| ".".into());
     let root_path = Path::new(&root);
