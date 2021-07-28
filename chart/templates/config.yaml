@@ -1,0 +1,23 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ template "gateway.base_name" . }}-config
+data:
+  runtime_config.yaml: |
+    bind_to: {{ required "Missing bind_address" .Values.bind_address}}:{{ required "Missing port" .Values.port }}
+    metrics_prefix: {{ required "Missing metrics_prefix" .Values.metrics_prefix }}
+    crd_label: {{ required "Missing crd_label" .Values.crd_label }}
+    perm_uris:
+    {{- range .Values.perm_uris }}
+      - uri: {{ . }}
+    {{- end }}
+    perm_update_delay: {{ required "Missing perm_update_delay" .Values.perm_update_delay }}
+    auth_sources:
+    {{- range .Values.auth_sources }}
+      - name: {{ .name }}
+        token_type: {{ .token_type }}
+        audience: {{ .audience }}
+        issuer: {{ .issuer }}
+        public_key: |
+{{ .public_key | indent 10 }}
+    {{- end }}

@@ -1,0 +1,6 @@
+apiVersion: v2
+name: gateway
+description: A Helm chart to deploy gateway
+type: application
+version: 0.1.0
+appVersion: "1.16.0"
