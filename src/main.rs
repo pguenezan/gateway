@@ -26,6 +26,14 @@ use prometheus::{
 #[macro_use]
 extern crate log;
 
+mod api;
+use api::{ApiDefinition, ApiMode};
+
+mod endpoint;
+
+mod route;
+use route::Node;
+
 mod auth;
 use auth::{get_claims, init_token_sources, Claims};
 
@@ -33,9 +41,10 @@ mod runtime_config;
 use runtime_config::{init_runtime_config, RUNTIME_CONFIG};
 
 mod permission;
-use permission::{get_perm, update_perm};
+use permission::{get_perm, has_perm, update_perm};
 
-use macros::gateway_config;
+mod fetch_crd;
+use fetch_crd::update_api;
 
 type GenericError = Box<dyn std::error::Error + Send + Sync>;
 type Result<T> = std::result::Result<T, GenericError>;
@@ -54,7 +63,7 @@ fn commit_metrics(
     req_size: &SizeHint,
     res_size: &SizeHint,
 ) {
-    let full_labels = vec![labels[0], labels[1], labels[2], status_code.as_str()];
+    let full_labels = vec![labels[0], labels[1], status_code.as_str()];
 
     HTTP_COUNTER.with_label_values(&full_labels).inc();
 
@@ -107,7 +116,7 @@ fn get_response(
     Ok(response)
 }
 
-const LABEL_NAMES: [&str; 4] = ["app", "path", "method", "status_code"];
+const LABEL_NAMES: [&str; 3] = ["app", "method", "status_code"];
 
 fn get_metric_name(name: &str) -> String {
     format!(
@@ -223,11 +232,93 @@ async fn health() -> Result<Response<Body>> {
         .unwrap())
 }
 
-async fn response(
+async fn call(
     mut req: Request<Body>,
+    client: &Client<HttpConnector>,
+    perm_lock: Arc<RwLock<HashMap<String, HashSet<String>>>>,
+    role_lock: Arc<RwLock<HashMap<String, HashMap<String, String>>>>,
+    perm: &str,
+    api: &ApiDefinition,
+    claims: &Claims,
+    labels: &[&str],
+    start_time: &Instant,
+    req_size: &SizeHint,
+    uri_string: &str,
+    token_type: &str,
+    method_str: &str,
+) -> Result<Response<Body>> {
+    match has_perm(perm_lock, perm, &claims.token_id).await {
+        false => get_response(
+            StatusCode::FORBIDDEN,
+            &FORBIDDEN,
+            &labels,
+            &start_time,
+            &req_size,
+        ),
+        true => {
+            match uri_string.parse() {
+                Ok(uri) => *req.uri_mut() = uri,
+                Err(_) => {
+                    return get_response(
+                        StatusCode::NOT_FOUND,
+                        &NOTFOUND,
+                        &labels,
+                        &start_time,
+                        &req_size,
+                    );
+                }
+            };
+            let role_read = role_lock.read().await;
+            let roles = match role_read.get(&claims.token_id) {
+                None => "",
+                Some(roles) => match roles.get(&api.spec.app_name[1..]) {
+                    None => "",
+                    Some(roles) => &roles,
+                },
+            };
+            inject_headers(req.headers_mut(), &claims, roles, token_type);
+            match client.request(req).await {
+                Ok(mut response) => {
+                    inject_cors(response.headers_mut());
+                    commit_metrics(
+                        &labels,
+                        &start_time,
+                        response.status(),
+                        &req_size,
+                        &response.size_hint(),
+                    );
+                    info!(
+                        "user: {} ({}, {}), {} {} - {}",
+                        claims.preferred_username,
+                        claims.token_id,
+                        claims.sub,
+                        method_str,
+                        uri_string,
+                        response.status()
+                    );
+                    Ok(response)
+                }
+                Err(error) => {
+                    warn!("502 for {}: {:?}", uri_string, error);
+                    get_response(
+                        StatusCode::BAD_GATEWAY,
+                        &BADGATEWAY,
+                        &labels,
+                        &start_time,
+                        &req_size,
+                    )
+                }
+            }
+        }
+    }
+}
+
+async fn response(
+    req: Request<Body>,
     client: Client<HttpConnector>,
     perm_lock: Arc<RwLock<HashMap<String, HashSet<String>>>>,
     role_lock: Arc<RwLock<HashMap<String, HashMap<String, String>>>>,
+    api_lock: Arc<RwLock<HashMap<String, (ApiDefinition, Node)>>>,
 ) -> Result<Response<Body>> {
     match req.uri().path() {
         "/metrics" => {
@@ -251,7 +342,7 @@ async fn response(
             return get_response(
                 StatusCode::NOT_FOUND,
                 &NOTFOUND,
-                &["", path, method_str],
+                &["", method_str],
                 &start_time,
                 &req_size,
             );
@@ -259,7 +350,7 @@ async fn response(
     };
     let app = &path[..slash_index];
 
-    let labels = [app, path, method_str];
+    let labels = [app, method_str];
 
     // to handle CORS pre flights
     if req.method() == Method::OPTIONS {
@@ -271,8 +362,6 @@ async fn response(
             &req_size,
         );
     }
-
-    let mut forwarded_path = &req.uri().path()[app.len()..];
 
     let authorization = match req.headers().get(AUTHORIZATION) {
         None => {
@@ -302,7 +391,7 @@ async fn response(
     let (claims, token_type) = match get_claims(authorization).await {
         Some(claims) => claims,
         None => {
-            debug!("no or missing claimsin authorization");
+            debug!("no or missing claims in authorization");
             return get_response(
                 StatusCode::FORBIDDEN,
                 &FORBIDDEN,
@@ -330,10 +419,64 @@ async fn response(
         }
     };
 
-    // HACK: inform the compiler that a build should trigger if config.yaml is modified
-    const _: &str = include_str!("../config.yaml");
-
-    gateway_config!("config.yaml")
+    match api_lock.read().await.get(app) {
+        None => get_response(
+            StatusCode::NOT_FOUND,
+            &NOTFOUND,
+            &labels,
+            &start_time,
+            &req_size,
+        ),
+        Some((api, node)) => match api.spec.mode {
+            ApiMode::ForwardAll => {
+                let uri_string = format!("{}{}", &api.spec.uri, forwarded_uri);
+                call(
+                    req,
+                    &client,
+                    perm_lock,
+                    role_lock,
+                    &format!("{}::{}::FULL_ACCESS", &app[1..], method_str),
+                    &api,
+                    &claims,
+                    &labels,
+                    &start_time,
+                    &req_size,
+                    &uri_string,
+                    &token_type,
+                    &method_str,
+                )
+                .await
+            }
+            ApiMode::ForwardStrict(_) => match node.match_path(forwarded_uri, method_str) {
+                None => get_response(
+                    StatusCode::NOT_FOUND,
+                    &NOTFOUND,
+                    &labels,
+                    &start_time,
+                    &req_size,
+                ),
+                Some(endpoint) => {
+                    let uri_string = format!("{}{}", &api.spec.uri, forwarded_uri);
+                    call(
+                        req,
+                        &client,
+                        perm_lock,
+                        role_lock,
+                        &endpoint.permission,
+                        &api,
+                        &claims,
+                        &labels,
+                        &start_time,
+                        &req_size,
+                        &uri_string,
+                        &token_type,
+                        &method_str,
+                    )
+                    .await
+                }
+            },
+        },
+    }
 }
 
 #[tokio::main]
@@ -353,11 +496,15 @@ async fn main() -> Result<()> {
         }
     };
 
+    // permissions fetching
     let (perm, role) = get_perm().await.unwrap();
     let perm_lock = Arc::new(RwLock::new(perm));
     let role_lock = Arc::new(RwLock::new(role));
-
     let update_perm = update_perm(perm_lock.clone(), role_lock.clone());
+
+    // apidefinitions fetching
+    let api_lock = Arc::new(RwLock::new(HashMap::new()));
+    let update_api = update_api(api_lock.clone());
 
     // Share a `Client` with all `Service`s
     let client = Client::new();
@@ -367,10 +514,17 @@ async fn main() -> Result<()> {
         let client = client.clone();
         let perm_lock = perm_lock.clone();
         let role_lock = role_lock.clone();
+        let api_lock = api_lock.clone();
         async {
             Ok::<_, GenericError>(service_fn(move |req| {
                 // Clone again to ensure that `client`, `perm_lock` and `role_lock` outlives this closure.
-                response(req, client.to_owned(), perm_lock.clone(), role_lock.clone())
+                response(
+                    req,
+                    client.to_owned(),
+                    perm_lock.clone(),
+                    role_lock.clone(),
+                    api_lock.clone(),
+                )
             }))
         }
     });
@@ -386,6 +540,9 @@ async fn main() -> Result<()> {
         },
         async {
             update_perm.await;
+        },
+        async {
+            update_api.await;
         },
     );
 

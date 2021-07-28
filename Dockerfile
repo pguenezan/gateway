@@ -1,6 +1,24 @@
-FROM registry.gitlab.com/osrdata/gateway:base_master as builder
+FROM rust as builder
+WORKDIR /usr/src
 
-FROM scratch
-COPY --from=builder /usr/local/cargo/bin/gateway .
+RUN apt-get update && \
+    apt-get dist-upgrade -y
+
+RUN USER=root cargo new gateway
+WORKDIR /usr/src/gateway
+COPY Cargo.toml Cargo.lock ./
+COPY src ./src
+RUN cargo install --path .
+
+
+FROM debian
+RUN apt-get -y update && \
+    apt-get -y install libssl-dev && \
+    apt-get clean autoclean && \
+    apt-get autoremove --yes && \
+    rm -rf /var/lib/{apt,dpkg,cache,log}/
+COPY --from=builder /usr/local/cargo/bin/gateway /home/app/gateway
+WORKDIR /home/app
 USER 1000
-CMD ["./gateway"]
+CMD ["/home/app/gateway", "/config/runtime_config.yaml"]
+

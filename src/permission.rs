@@ -43,10 +43,10 @@ async fn fetch_perm(perm_uri: &PermUri) -> Option<PermList> {
         }
     };
     match serde_json::from_reader(body.reader()) {
-        Ok(json) => return json,
+        Ok(json) => json,
         Err(e) => {
             error!("fail to fetch {:?}: {}", perm_uri, e);
-            return None;
+            None
         }
     }
 }
@@ -127,4 +127,12 @@ pub async fn update_perm(
         }
         debug!("perm updated");
     }
+}
+
+pub async fn has_perm(
+    perm_lock: Arc<RwLock<HashMap<String, HashSet<String>>>>,
+    perm: &str,
+    token_id: &str,
+) -> bool {
+    matches!(perm_lock.read().await.get(perm), Some(users) if users.contains(token_id))
 }
