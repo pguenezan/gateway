@@ -405,7 +405,7 @@ async fn response(
     let forwarded_uri = match req
         .uri()
         .path_and_query()
-        .map(|x| &x.as_str()[app.len() + 1..])
+        .map(|x| &x.as_str()[app.len()..])
     {
         Some(forwarded_uri) => forwarded_uri,
         None => {

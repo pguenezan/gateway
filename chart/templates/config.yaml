@@ -19,5 +19,5 @@ data:
         audience: {{ .audience }}
         issuer: {{ .issuer }}
         public_key: |
-{{ .public_key | indent 10 }}
+{{ trim .public_key | indent 10 }}
     {{- end }}

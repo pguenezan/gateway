@@ -41,7 +41,7 @@ impl ApiDefinition {
     }
 
     pub fn build_uri(&mut self) {
-        self.spec.uri = format!("http://{}{}/", &self.spec.host, &self.spec.forward_path);
+        self.spec.uri = format!("http://{}{}", &self.spec.host, &self.spec.forward_path);
     }
 
     fn check_app_name(&self) -> Result<(), String> {

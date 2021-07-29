@@ -9,7 +9,7 @@ use once_cell::sync::OnceCell;
 use crate::runtime_config::{AuthSource, RUNTIME_CONFIG};
 
 #[allow(dead_code)] // some fields are only used by the validator
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 pub struct Claims {
     pub sub: String,
     iss: String,
@@ -27,6 +27,7 @@ fn get_audience(aud: String) -> HashSet<String> {
     auds
 }
 
+#[derive(Debug)]
 struct TokenSource {
     pub name: String,
     pub token_type: String,
