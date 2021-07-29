@@ -1,0 +1,117 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ template "gateway.base_name" . }}
+  labels:
+    app: {{ template "gateway.base_name" . }}
+spec:
+  replicas: {{ .Values.replicas }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app: {{ template "gateway.base_name" . }}
+  template:
+    metadata:
+      labels:
+        app: {{ template "gateway.base_name" . }}
+        rollme: {{ randAlphaNum 5 | quote }}
+    spec:
+      nodeSelector:
+        group: {{ required "Missing node_group" .Values.node_group }}
+      serviceAccountName: {{ template "gateway.base_name" . }}-sa
+      containers:
+        - name: gateway
+          image: {{ required "Missing image" .Values.image }}:{{ required "Missing image_tag" .Values.image_tag }}
+          env:
+          - name: RUST_LOG
+            value: info
+          imagePullPolicy: Always
+          volumeMounts:
+            - name: config
+              mountPath: /config
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "100Mi"
+            limits:
+              cpu: "500m"
+              memory: "250Mi"
+          ports:
+            - name: http
+              containerPort: {{ .Values.port }}
+              protocol: TCP
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: {{ .Values.port }}
+            initialDelaySeconds: 5
+            timeoutSeconds: 5
+            periodSeconds: 3
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: {{ .Values.port }}
+            initialDelaySeconds: 5
+            timeoutSeconds: 5
+            periodSeconds: 3
+      volumes:
+        - name: config
+          configMap:
+            name: {{ template "gateway.base_name" . }}-config
+            defaultMode: 0755
+      imagePullSecrets:
+      - name: {{ required "Missing image_pull_secrets" .Values.image_pull_secrets }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ template "gateway.base_name" . }}
+  labels:
+    app: {{ template "gateway.base_name" . }}
+spec:
+  type: ClusterIP
+  clusterIP: None
+  selector:
+    app: {{ template "gateway.base_name" . }}
+  ports:
+    - name: http
+      port: {{ .Values.port }}
+      targetPort: http
+      protocol: TCP
+---
+apiVersion: traefik.containo.us/v1alpha1
+kind: IngressRoute
+metadata:
+  name: {{ template "gateway.base_name" . }}
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - match: Host(`{{ required "Missing uri" .Values.uri }}`) && PathPrefix(`/{app:[a-z_0-9]+}/`)
+      kind: Rule
+      services:
+        - name: {{ template "gateway.base_name" . }}
+          port: {{ .Values.port }}
+  tls:
+    certResolver: letsencrypt
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ template "gateway.base_name" . }}
+  labels:
+    release: {{ required "Missing service_monitor_release" .Values.service_monitor_release }}
+spec:
+  namespaceSelector:
+    matchNames:
+    - {{ .Release.Namespace }}
+  selector:
+    matchLabels:
+      app: {{ template "gateway.base_name" . }}
+  endpoints:
+  - targetPort: {{ .Values.port }}
+    scheme: http

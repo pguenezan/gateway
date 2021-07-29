@@ -1,0 +1,4 @@
+bind_address: 0.0.0.0
+port: 3000
+perm_update_delay: 30
+replicas: 2

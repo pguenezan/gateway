@@ -1,18 +1,27 @@
 use std::str::FromStr;
 
-use anyhow::{anyhow, bail};
+use lazy_static::lazy_static;
+
+use schemars::JsonSchema;
+
 use hyper::Method;
 use regex::Regex;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
-#[derive(Deserialize, Debug)]
+lazy_static! {
+    static ref PATH_TO_PERM: Regex = Regex::new("\\{[^/]*\\}").unwrap();
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, JsonSchema)]
 pub struct Endpoint {
     pub path: String,
     pub method: String,
+    #[serde(skip)]
+    pub permission: String,
 }
 
 impl Endpoint {
-    pub(crate) fn check_fields(&self) -> anyhow::Result<()> {
+    pub(crate) fn check_fields(&self) -> Result<(), String> {
         self.check_path()?;
         self.check_parameters()?;
         self.check_method()?;
@@ -20,7 +29,16 @@ impl Endpoint {
         Ok(())
     }
 
-    fn check_parameters(&self) -> anyhow::Result<()> {
+    pub fn build_permission(&mut self, app: &str) {
+        self.permission = format!(
+            "{}::{}::{}",
+            app,
+            self.method,
+            PATH_TO_PERM.replace_all(&self.path, "{}")
+        );
+    }
+
+    fn check_parameters(&self) -> Result<(), String> {
         let path = &self.path;
 
         let match_param = Regex::new("(.?)\\{([^/]+)\\}(.?)").unwrap();
@@ -29,50 +47,46 @@ impl Endpoint {
             let captures = match_param.captures(&mut_path).unwrap();
             let content = captures.get(2).unwrap().as_str();
             if content.contains('{') || content.contains('}') {
-                bail!(
+                return Err(format!(
                     "param: `{}` contains `{{` or `}}` in path `{}`",
-                    content,
-                    path
-                );
+                    content, path
+                ));
             }
             let preceded = captures.get(1).unwrap().as_str();
             let succeed = captures.get(3).unwrap().as_str();
             if preceded != "/" || succeed != "/" {
-                bail!(
+                return Err(format!(
                     "param: `{}` must be preceded and succeed by `/` not (`{}`, `{}`) in path `{}`",
-                    content,
-                    preceded,
-                    succeed,
-                    path
-                );
+                    content, preceded, succeed, path
+                ));
             }
             mut_path = match_param
                 .replace(&format!("{{{}}}", &content), "")
                 .to_string();
         }
         if mut_path.contains('{') || mut_path.contains('}') {
-            bail!("path: `{}` contains/is missing `{{` or `}}`", path);
+            return Err(format!("path: `{}` contains/is missing `{{` or `}}`", path));
         }
         Ok(())
     }
 
-    fn check_path(&self) -> anyhow::Result<()> {
+    fn check_path(&self) -> Result<(), String> {
         if self.path.is_empty() {
-            bail!("path: {} must be at least 1 characters", self.path);
+            return Err(format!("path: {} must be at least 1 characters", self.path));
         }
         if !self.path.starts_with('/') {
-            bail!("path: {} should start with `/`", self.path);
+            return Err(format!("path: {} should start with `/`", self.path));
         }
         if !self.path.ends_with('/') {
-            bail!("path: {} should end with `/`", self.path);
+            return Err(format!("path: {} should end with `/`", self.path));
         }
 
         Ok(())
     }
 
-    fn check_method(&self) -> anyhow::Result<()> {
+    fn check_method(&self) -> Result<(), String> {
         Method::from_str(&self.method)
             .map(|_| ())
-            .map_err(|err| anyhow!("couldn't parse method: {}", err))
+            .map_err(|err| format!("couldn't parse method: {}", err))
     }
 }
