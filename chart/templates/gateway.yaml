@@ -91,11 +91,14 @@ spec:
   entryPoints:
     - websecure
   routes:
-    - match: Host(`{{ required "Missing uri" .Values.uri }}`) && PathPrefix(`/{app:[a-z_0-9]+}/`)
+  {{- range .Values.routes }}
+    - match: Host(`{{ required "Missing uri" .uri }}`) && PathPrefix(`{{ required "Missing path_prefix" .path_prefix }}`)
+      priority: {{ required "Missing route_priority" .route_priority }}
       kind: Rule
       services:
-        - name: {{ template "gateway.base_name" . }}
-          port: {{ .Values.port }}
+        - name: {{ template "gateway.base_name" $ }}
+          port: {{ $.Values.port }}
+  {{- end }}
   tls:
     certResolver: letsencrypt
 ---

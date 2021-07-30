@@ -1,4 +1,6 @@
 bind_address: 0.0.0.0
+path_prefix: /{app:[a-z_0-9]+}/
 port: 3000
 perm_update_delay: 30
 replicas: 2
+route_priority: 0

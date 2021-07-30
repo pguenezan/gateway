@@ -402,11 +402,7 @@ async fn response(
         }
     };
 
-    let forwarded_uri = match req
-        .uri()
-        .path_and_query()
-        .map(|x| &x.as_str()[app.len()..])
-    {
+    let forwarded_uri = match req.uri().path_and_query().map(|x| &x.as_str()[app.len()..]) {
         Some(forwarded_uri) => forwarded_uri,
         None => {
             return get_response(
@@ -418,6 +414,8 @@ async fn response(
             );
         }
     };
+
+    let forwarded_path = &req.uri().path()[app.len()..];
 
     match api_lock.read().await.get(app) {
         None => get_response(
@@ -447,7 +445,7 @@ async fn response(
                 )
                 .await
             }
-            ApiMode::ForwardStrict(_) => match node.match_path(forwarded_uri, method_str) {
+            ApiMode::ForwardStrict(_) => match node.match_path(forwarded_path, method_str) {
                 None => get_response(
                     StatusCode::NOT_FOUND,
                     &NOTFOUND,
