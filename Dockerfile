@@ -11,7 +11,7 @@ COPY src ./src
 RUN cargo install --path .
 
 
-FROM debian
+FROM debian:buster-slim
 RUN apt-get -y update && \
     apt-get -y install libssl-dev && \
     apt-get clean autoclean && \

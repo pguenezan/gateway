@@ -11,7 +11,10 @@ use kube_runtime::{utils::try_flatten_applied, watcher};
 use crate::api::ApiDefinition;
 use crate::route::Node;
 
-pub async fn update_api(api_lock: Arc<RwLock<HashMap<String, (ApiDefinition, Node)>>>) {
+pub async fn update_api(
+    api_lock: Arc<RwLock<HashMap<String, (ApiDefinition, Node)>>>,
+    label_filter: String,
+) {
     let client = match Client::try_default().await {
         Ok(client) => client,
         Err(e) => {
@@ -20,7 +23,7 @@ pub async fn update_api(api_lock: Arc<RwLock<HashMap<String, (ApiDefinition, Nod
         }
     };
     let apidefinitions: Api<ApiDefinition> = Api::all(client);
-    let lp = ListParams::default().labels("gateway/target=dev");
+    let lp = ListParams::default().labels(&label_filter);
     let watcher = watcher(apidefinitions, lp);
 
     let mut apply_apidefinitions = try_flatten_applied(watcher).boxed_local();

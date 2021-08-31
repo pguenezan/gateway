@@ -502,7 +502,10 @@ async fn main() -> Result<()> {
 
     // apidefinitions fetching
     let api_lock = Arc::new(RwLock::new(HashMap::new()));
-    let update_api = update_api(api_lock.clone());
+    let update_api = update_api(
+        api_lock.clone(),
+        RUNTIME_CONFIG.get().unwrap().crd_label.to_owned(),
+    );
 
     // Share a `Client` with all `Service`s
     let client = Client::new();
