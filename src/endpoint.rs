@@ -77,9 +77,9 @@ impl Endpoint {
         if !self.path.starts_with('/') {
             return Err(format!("path: {} should start with `/`", self.path));
         }
-        if !self.path.ends_with('/') {
-            return Err(format!("path: {} should end with `/`", self.path));
-        }
+        // if !self.path.ends_with('/') {
+        //     return Err(format!("path: {} should end with `/`", self.path));
+        // }
 
         Ok(())
     }
