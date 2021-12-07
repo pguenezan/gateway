@@ -64,9 +64,9 @@ impl Endpoint {
                 .replace(&format!("{{{}}}", &content), "")
                 .to_string();
         }
-        if mut_path.contains('{') || mut_path.contains('}') {
-            return Err(format!("path: `{}` contains/is missing `{{` or `}}`", path));
-        }
+        // if mut_path.contains('{') || mut_path.contains('}') {
+        //     return Err(format!("path: `{}` contains/is missing `{{` or `}}`", path));
+        // }
         Ok(())
     }
 
