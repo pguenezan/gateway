@@ -19,6 +19,7 @@ use hyper_tungstenite::is_upgrade_request;
 
 use lazy_static::lazy_static;
 
+use anyhow::anyhow;
 use prometheus::{
     exponential_buckets, opts, register_counter_vec, register_histogram_vec, CounterVec, Encoder,
     HistogramVec, TextEncoder,
@@ -562,19 +563,16 @@ async fn main() -> Result<()> {
     let server = Server::bind(&addr).serve(make_service);
     info!("Listening on http://{}", addr);
 
-    tokio::join!(
-        async {
-            if let Err(e) = server.await {
-                error!("fail to run server: {}", e);
-            }
-        },
-        async {
-            update_perm.await;
-        },
-        async {
-            update_api.await;
-        },
-    );
+    let res = tokio::try_join!(update_perm, update_api, async {
+        server.await.map_err(|e| anyhow!(e))
+    });
+    match res {
+        Ok((_, _, _)) => info!("That went well"),
+        Err(e) => {
+            error!("Error in join: {:?}", e);
+            exit(1);
+        }
+    }
 
     Ok(())
 }
