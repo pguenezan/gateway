@@ -60,7 +60,8 @@ impl Endpoint {
             }
             let preceded = captures.get(1).unwrap().as_str();
             let succeed = captures.get(3).unwrap().as_str();
-            if preceded != "/" { //|| succeed != "/" {
+            if preceded != "/" {
+                //|| succeed != "/" {
                 return Err(format!(
                     "param: `{}` must be preceded and succeed by `/` not (`{}`, `{}`) in path `{}`",
                     content, preceded, succeed, path

@@ -1,6 +1,6 @@
+use anyhow::bail;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
-use anyhow::bail;
 
 use serde::Deserialize;
 
@@ -88,7 +88,7 @@ pub async fn get_perm() -> Result<(
                 }
             }
             None => {
-               bail!("Fail to fetch permissions");
+                bail!("Fail to fetch permissions");
             }
         }
     }
@@ -111,7 +111,7 @@ pub async fn get_perm() -> Result<(
 pub async fn update_perm(
     perm_lock: Arc<RwLock<HashMap<String, HashSet<String>>>>,
     role_lock: Arc<RwLock<HashMap<String, HashMap<String, String>>>>,
-) {
+) -> Result<()> {
     let mut error_count = 0;
     let max_fetch_error = RUNTIME_CONFIG.get().unwrap().max_fetch_error;
 
@@ -120,13 +120,15 @@ pub async fn update_perm(
         let perm_update = get_perm().await;
         if perm_update.is_err() {
             error_count += 1;
-            debug!("Failed to fetch/update permissions for the {} times", error_count);
+            error!(
+                "Failed to fetch/update permissions for the {} times",
+                error_count
+            );
 
             if error_count >= max_fetch_error {
-                //bail!("Failed to fetch/update permissions")
+                bail!("Failed to fetch/update permissions")
             }
-        }
-        else {
+        } else {
             let (perm, role) = perm_update.unwrap();
 
             let mut perm_write = perm_lock.write().await;
