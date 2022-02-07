@@ -1,4 +1,3 @@
-use anyhow::bail;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
@@ -12,6 +11,8 @@ use hyper::Client;
 
 use tokio::sync::RwLock;
 use tokio::time::{sleep, Duration};
+
+use anyhow::bail;
 
 use crate::runtime_config::{PermUri, RUNTIME_CONFIG};
 
@@ -113,7 +114,7 @@ pub async fn update_perm(
     role_lock: Arc<RwLock<HashMap<String, HashMap<String, String>>>>,
 ) -> Result<()> {
     let mut error_count = 0;
-    let max_fetch_error = RUNTIME_CONFIG.get().unwrap().max_fetch_error;
+    let max_fetch_error_count = RUNTIME_CONFIG.get().unwrap().max_fetch_error_count;
 
     loop {
         sleep(Duration::from_millis(RUNTIME_CONFIG.get().unwrap().perm_update_delay) * 1000).await;
@@ -125,7 +126,7 @@ pub async fn update_perm(
                 error_count
             );
 
-            if error_count >= max_fetch_error {
+            if error_count >= max_fetch_error_count {
                 bail!("Failed to fetch/update permissions")
             }
         } else {

@@ -43,7 +43,7 @@ pub struct RuntimeConfig {
     pub perm_uris: Vec<PermUri>,
     pub perm_update_delay: u64,
     pub auth_sources: Vec<AuthSource>,
-    pub max_fetch_error: u64,
+    pub max_fetch_error_count: u64,
     websocket_config: WebSocketConfigInternal,
 }
 

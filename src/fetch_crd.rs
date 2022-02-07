@@ -8,9 +8,10 @@ use kube::Client;
 use futures::{StreamExt, TryStreamExt};
 use kube_runtime::{utils::try_flatten_applied, watcher};
 
+use anyhow::{bail, Result};
+
 use crate::api::ApiDefinition;
 use crate::route::Node;
-use anyhow::{bail, Result};
 
 pub async fn update_api(
     api_lock: Arc<RwLock<HashMap<String, (ApiDefinition, Node)>>>,
