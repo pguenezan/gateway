@@ -10,7 +10,7 @@ use futures::stream::{SplitSink, SplitStream};
 use futures::{pin_mut, SinkExt, StreamExt};
 use hyper::upgrade::Upgraded;
 use tokio::net::TcpStream;
-use tokio::{join, spawn};
+use tokio::{spawn, try_join};
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::MaybeTlsStream;
 use tokio_tungstenite::{connect_async_with_config, WebSocketStream};
@@ -95,17 +95,19 @@ async fn serve_websocket(ws_client: HyperWebsocket, ws_server: ServerWebSocket) 
                     Err(e) => {
                         warn!("error in client message: {:?}", e);
                         close_tx(&mut tx_server).await;
-                        break;
+                        return Err(e);
                     }
                     Ok(message) => {
                         info!("message from client: {}", message);
                         if let Err(e) = tx_server.send(message).await {
                             warn!("fail to send message to server: {:?}", e);
                             close_tx(&mut tx_server).await;
+                            return Err(e);
                         }
                     }
                 };
             }
+            Ok(())
         };
     let server_to_client_closure =
         move |mut tx_client: TxClientSink, mut rx_server: RxServerStream| async move {
@@ -119,30 +121,27 @@ async fn serve_websocket(ws_client: HyperWebsocket, ws_server: ServerWebSocket) 
                     Err(e) => {
                         warn!("error in server message: {:?}", e);
                         close_tx(&mut tx_client).await;
-                        break;
+                        return Err(e);
                     }
                     Ok(message) => {
                         info!("message from server: {}", message);
                         if let Err(e) = tx_client.send(message).await {
                             warn!("fail to send message to server: {:?}", e);
                             close_tx(&mut tx_client).await;
+                            return Err(e);
                         }
                     }
                 }
             }
+            Ok(())
         };
 
     let client_to_server = client_to_server_closure(tx_server, rx_client);
     let server_to_client = server_to_client_closure(tx_client, rx_server);
 
     pin_mut!(client_to_server, server_to_client);
-    join!(
-        async {
-            client_to_server.await;
-        },
-        async {
-            server_to_client.await;
-        }
-    );
+    if let Err(e) = try_join!(client_to_server, server_to_client) {
+        warn!("websocket error: {:?}", e)
+    }
     Ok(())
 }
