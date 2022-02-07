@@ -16,8 +16,14 @@ lazy_static! {
 pub struct Endpoint {
     pub path: String,
     pub method: String,
+    #[serde(default = "is_websocket_default")]
+    pub is_websocket: bool,
     #[serde(skip)]
     pub permission: String,
+}
+
+fn is_websocket_default() -> bool {
+    false
 }
 
 impl Endpoint {

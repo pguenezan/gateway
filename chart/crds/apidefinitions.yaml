@@ -45,6 +45,9 @@ spec:
                               - PATCH
                           path:
                             type: string
+                          is_websocket:
+                            type: boolean
+                            default: false
                 forward_path:
                   type: string
   scope: Namespaced
