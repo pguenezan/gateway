@@ -8,18 +8,20 @@ use kube::Client;
 use futures::{StreamExt, TryStreamExt};
 use kube_runtime::{utils::try_flatten_applied, watcher};
 
+use anyhow::{bail, Result};
+
 use crate::api::ApiDefinition;
 use crate::route::Node;
 
 pub async fn update_api(
     api_lock: Arc<RwLock<HashMap<String, (ApiDefinition, Node)>>>,
     label_filter: String,
-) {
+) -> Result<()> {
     let client = match Client::try_default().await {
         Ok(client) => client,
         Err(e) => {
-            error!("{}", e);
-            return;
+            error!("kube client: {:?}", e);
+            bail!("kube client: {:?}", e);
         }
     };
     let apidefinitions: Api<ApiDefinition> = Api::all(client);
@@ -30,26 +32,26 @@ pub async fn update_api(
     loop {
         match apply_apidefinitions.try_next().await {
             Err(e) => {
-                error!("{}", e);
-                return;
+                error!("crd stream: {:?}", e);
+                bail!("crd stream: {:?}", e);
             }
             Ok(None) => {
                 error!("missing apidefinition");
-                return;
+                bail!("missing apidefinition");
             }
             Ok(Some(ref apidefinition)) => match apidefinition.check_fields() {
                 Err(e) => {
-                    error!("{}", e);
-                    return;
+                    error!("invalid apidefinition {}", e);
+                    bail!("invalid apidefinition {}", e);
                 }
                 Ok(_) => {
                     let node = Node::new(apidefinition);
                     let mut api_write = api_lock.write().await;
-                    let mut built_appdefinition = apidefinition.clone();
-                    built_appdefinition.build_uri();
+                    let mut built_apidefinition = apidefinition.clone();
+                    built_apidefinition.build_uri();
                     api_write.insert(
-                        built_appdefinition.spec.app_name.clone(),
-                        (built_appdefinition, node),
+                        built_apidefinition.spec.app_name.clone(),
+                        (built_apidefinition, node),
                     );
                     println!(
                         "{} api updated from {:?}",

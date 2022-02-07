@@ -37,24 +37,6 @@ clippy:
   script:
     - cargo clippy --all -- -D warnings
 
-test:
-  extends: .cache
-  image: rust
-  stage: test
-  script:
-    - cargo test
-
-docker_build_base:
-  stage: build_base
-  image:
-    name: gcr.io/kaniko-project/executor:debug
-    entrypoint: [ "" ]
-  script:
-    - mkdir -p /kaniko/.docker
-    - echo "{\"auths\":{\"$CI_REGISTRY\":{\"username\":\"$CI_REGISTRY_USER\",\"password\":\"$CI_REGISTRY_PASSWORD\"}}}" > /kaniko/.docker/config.json
-    - /kaniko/executor --context $CI_PROJECT_DIR --dockerfile Dockerfile_base --destination "$CI_REGISTRY_IMAGE:base_$CI_COMMIT_REF_SLUG" --cache=true
-
-
 docker_build:
   stage: build
   image:
@@ -63,4 +45,4 @@ docker_build:
   script:
     - mkdir -p /kaniko/.docker
     - echo "{\"auths\":{\"$CI_REGISTRY\":{\"username\":\"$CI_REGISTRY_USER\",\"password\":\"$CI_REGISTRY_PASSWORD\"}}}" > /kaniko/.docker/config.json
-    - /kaniko/executor --context $CI_PROJECT_DIR --dockerfile Dockerfile --destination "$CI_REGISTRY_IMAGE:$CI_COMMIT_REF_SLUG" --build-arg BRANCH=${CI_COMMIT_BRANCH} --cache=true
+    - /kaniko/executor --context $CI_PROJECT_DIR --dockerfile Dockerfile --destination "$CI_REGISTRY_IMAGE:${CI_COMMIT_SHA}" --build-arg BRANCH=${CI_COMMIT_BRANCH} --cache=true

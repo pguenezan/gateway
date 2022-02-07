@@ -15,8 +15,11 @@ use hyper::header::{
 };
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Client, HeaderMap, Method, Request, Response, Server, StatusCode};
+use hyper_tungstenite::is_upgrade_request;
 
 use lazy_static::lazy_static;
+
+use anyhow::anyhow;
 
 use prometheus::{
     exponential_buckets, opts, register_counter_vec, register_histogram_vec, CounterVec, Encoder,
@@ -30,6 +33,7 @@ mod api;
 use api::{ApiDefinition, ApiMode};
 
 mod endpoint;
+mod websocket;
 
 mod route;
 use route::Node;
@@ -44,16 +48,18 @@ mod permission;
 use permission::{get_perm, has_perm, update_perm};
 
 mod fetch_crd;
+use crate::endpoint::Endpoint;
+use crate::websocket::handle_upgrade;
 use fetch_crd::update_api;
 
 type GenericError = Box<dyn std::error::Error + Send + Sync>;
 type Result<T> = std::result::Result<T, GenericError>;
 
 static OK: &[u8] = b"Ok";
-static NOTFOUND: &[u8] = b"Not Found";
+static NOT_FOUND: &[u8] = b"Not Found";
 static FORBIDDEN: &[u8] = b"Forbidden";
-static BADGATEWAY: &[u8] = b"Bad Gateway";
-static NOCONTENT: &[u8] = b"";
+static BAD_GATEWAY: &[u8] = b"Bad Gateway";
+static NO_CONTENT: &[u8] = b"";
 
 #[inline(always)]
 fn commit_metrics(
@@ -237,34 +243,49 @@ async fn call(
     client: &Client<HttpConnector>,
     perm_lock: Arc<RwLock<HashMap<String, HashSet<String>>>>,
     role_lock: Arc<RwLock<HashMap<String, HashMap<String, String>>>>,
-    perm: &str,
+    endpoint: &Endpoint,
     api: &ApiDefinition,
     claims: &Claims,
     labels: &[&str],
     start_time: &Instant,
     req_size: &SizeHint,
-    uri_string: &str,
+    http_uri_string: &str,
+    ws_uri_string: &str,
     token_type: &str,
     method_str: &str,
 ) -> Result<Response<Body>> {
-    match has_perm(perm_lock, perm, &claims.token_id).await {
+    match has_perm(perm_lock, &endpoint.permission, &claims.token_id).await {
         false => get_response(
             StatusCode::FORBIDDEN,
-            &FORBIDDEN,
-            &labels,
-            &start_time,
-            &req_size,
+            FORBIDDEN,
+            labels,
+            start_time,
+            req_size,
         ),
         true => {
-            match uri_string.parse() {
+            if endpoint.is_websocket && is_upgrade_request(&req) {
+                return handle_upgrade(req, labels, start_time, req_size, ws_uri_string).await;
+            }
+
+            if endpoint.is_websocket {
+                return get_response(
+                    StatusCode::UPGRADE_REQUIRED,
+                    NO_CONTENT,
+                    labels,
+                    start_time,
+                    req_size,
+                );
+            }
+
+            match http_uri_string.parse() {
                 Ok(uri) => *req.uri_mut() = uri,
                 Err(_) => {
                     return get_response(
                         StatusCode::NOT_FOUND,
-                        &NOTFOUND,
-                        &labels,
-                        &start_time,
-                        &req_size,
+                        NOT_FOUND,
+                        labels,
+                        start_time,
+                        req_size,
                     );
                 }
             };
@@ -273,18 +294,19 @@ async fn call(
                 None => "",
                 Some(roles) => match roles.get(&api.spec.app_name[1..]) {
                     None => "",
-                    Some(roles) => &roles,
+                    Some(roles) => roles,
                 },
             };
-            inject_headers(req.headers_mut(), &claims, roles, token_type);
+
+            inject_headers(req.headers_mut(), claims, roles, token_type);
             match client.request(req).await {
                 Ok(mut response) => {
                     inject_cors(response.headers_mut());
                     commit_metrics(
-                        &labels,
-                        &start_time,
+                        labels,
+                        start_time,
                         response.status(),
-                        &req_size,
+                        req_size,
                         &response.size_hint(),
                     );
                     info!(
@@ -293,19 +315,19 @@ async fn call(
                         claims.token_id,
                         claims.sub,
                         method_str,
-                        uri_string,
+                        http_uri_string,
                         response.status()
                     );
                     Ok(response)
                 }
                 Err(error) => {
-                    warn!("502 for {}: {:?}", uri_string, error);
+                    warn!("502 for {}: {:?}", http_uri_string, error);
                     get_response(
                         StatusCode::BAD_GATEWAY,
-                        &BADGATEWAY,
-                        &labels,
-                        &start_time,
-                        &req_size,
+                        BAD_GATEWAY,
+                        labels,
+                        start_time,
+                        req_size,
                     )
                 }
             }
@@ -341,7 +363,7 @@ async fn response(
         None => {
             return get_response(
                 StatusCode::NOT_FOUND,
-                &NOTFOUND,
+                NOT_FOUND,
                 &["", method_str],
                 &start_time,
                 &req_size,
@@ -356,7 +378,7 @@ async fn response(
     if req.method() == Method::OPTIONS {
         return get_response(
             StatusCode::NO_CONTENT,
-            &NOCONTENT,
+            NO_CONTENT,
             &labels,
             &start_time,
             &req_size,
@@ -368,7 +390,7 @@ async fn response(
             debug!("no Authorization header");
             return get_response(
                 StatusCode::FORBIDDEN,
-                &FORBIDDEN,
+                FORBIDDEN,
                 &labels,
                 &start_time,
                 &req_size,
@@ -379,7 +401,7 @@ async fn response(
                 debug!("error in authorization: {:#?}", e);
                 return get_response(
                     StatusCode::FORBIDDEN,
-                    &FORBIDDEN,
+                    FORBIDDEN,
                     &labels,
                     &start_time,
                     &req_size,
@@ -394,7 +416,7 @@ async fn response(
             debug!("no or missing claims in authorization");
             return get_response(
                 StatusCode::FORBIDDEN,
-                &FORBIDDEN,
+                FORBIDDEN,
                 &labels,
                 &start_time,
                 &req_size,
@@ -407,7 +429,7 @@ async fn response(
         None => {
             return get_response(
                 StatusCode::NOT_FOUND,
-                &NOTFOUND,
+                NOT_FOUND,
                 &labels,
                 &start_time,
                 &req_size,
@@ -420,55 +442,64 @@ async fn response(
     match api_lock.read().await.get(app) {
         None => get_response(
             StatusCode::NOT_FOUND,
-            &NOTFOUND,
+            NOT_FOUND,
             &labels,
             &start_time,
             &req_size,
         ),
         Some((api, node)) => match api.spec.mode {
             ApiMode::ForwardAll => {
-                let uri_string = format!("{}{}", &api.spec.uri, forwarded_uri);
+                let endpoint = Endpoint::from_forward_all(
+                    forwarded_path.to_string(),
+                    method_str.to_string(),
+                    app,
+                );
+                let http_uri_string = format!("{}{}", &api.spec.uri_http, forwarded_uri);
+                let ws_uri_string = format!("{}{}", &api.spec.uri_ws, forwarded_uri);
                 call(
                     req,
                     &client,
                     perm_lock,
                     role_lock,
-                    &format!("{}::{}::FULL_ACCESS", &app[1..], method_str),
-                    &api,
+                    &endpoint,
+                    api,
                     &claims,
                     &labels,
                     &start_time,
                     &req_size,
-                    &uri_string,
+                    &http_uri_string,
+                    &ws_uri_string,
                     &token_type,
-                    &method_str,
+                    method_str,
                 )
                 .await
             }
             ApiMode::ForwardStrict(_) => match node.match_path(forwarded_path, method_str) {
                 None => get_response(
                     StatusCode::NOT_FOUND,
-                    &NOTFOUND,
+                    NOT_FOUND,
                     &labels,
                     &start_time,
                     &req_size,
                 ),
                 Some(endpoint) => {
-                    let uri_string = format!("{}{}", &api.spec.uri, forwarded_uri);
+                    let http_uri_string = format!("{}{}", &api.spec.uri_http, forwarded_uri);
+                    let ws_uri_string = format!("{}{}", &api.spec.uri_ws, forwarded_uri);
                     call(
                         req,
                         &client,
                         perm_lock,
                         role_lock,
-                        &endpoint.permission,
-                        &api,
+                        endpoint,
+                        api,
                         &claims,
                         &labels,
                         &start_time,
                         &req_size,
-                        &uri_string,
+                        &http_uri_string,
+                        &ws_uri_string,
                         &token_type,
-                        &method_str,
+                        method_str,
                     )
                     .await
                 }
@@ -533,19 +564,16 @@ async fn main() -> Result<()> {
     let server = Server::bind(&addr).serve(make_service);
     info!("Listening on http://{}", addr);
 
-    tokio::join!(
-        async {
-            if let Err(e) = server.await {
-                error!("fail to run server: {}", e);
-            }
-        },
-        async {
-            update_perm.await;
-        },
-        async {
-            update_api.await;
-        },
-    );
+    let res = tokio::try_join!(update_perm, update_api, async {
+        server.await.map_err(|e| anyhow!(e))
+    });
+    match res {
+        Ok((_, _, _)) => info!("That went well"),
+        Err(e) => {
+            error!("Error in join: {:?}", e);
+            exit(1);
+        }
+    }
 
     Ok(())
 }
