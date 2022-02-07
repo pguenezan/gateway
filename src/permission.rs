@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
-use std::process::exit;
 use std::sync::Arc;
+use anyhow::bail;
 
 use serde::Deserialize;
 
@@ -15,8 +15,7 @@ use tokio::time::{sleep, Duration};
 
 use crate::runtime_config::{PermUri, RUNTIME_CONFIG};
 
-type GenericError = Box<dyn std::error::Error>;
-type Result<T> = std::result::Result<T, GenericError>;
+use anyhow::Result;
 
 #[derive(Deserialize, Debug)]
 struct Perm {
@@ -89,8 +88,7 @@ pub async fn get_perm() -> Result<(
                 }
             }
             None => {
-                error!("fail to fetch permission");
-                exit(1);
+               bail!("Fail to fetch permissions");
             }
         }
     }
@@ -114,18 +112,34 @@ pub async fn update_perm(
     perm_lock: Arc<RwLock<HashMap<String, HashSet<String>>>>,
     role_lock: Arc<RwLock<HashMap<String, HashMap<String, String>>>>,
 ) {
+    let mut error_count = 0;
+    let max_fetch_error = RUNTIME_CONFIG.get().unwrap().max_fetch_error;
+
     loop {
         sleep(Duration::from_millis(RUNTIME_CONFIG.get().unwrap().perm_update_delay) * 1000).await;
-        let (perm, role) = get_perm().await.unwrap();
-        {
+        let perm_update = get_perm().await;
+        if perm_update.is_err() {
+            error_count += 1;
+            debug!("Failed to fetch/update permissions for the {} times", error_count);
+
+            if error_count >= max_fetch_error {
+                //bail!("Failed to fetch/update permissions")
+            }
+        }
+        else {
+            let (perm, role) = perm_update.unwrap();
+
             let mut perm_write = perm_lock.write().await;
             *perm_write = perm;
-        }
-        {
+            drop(perm_write);
+
             let mut role_write = role_lock.write().await;
             *role_write = role;
+            drop(role_write);
+
+            error_count = 0;
+            debug!("perm updated");
         }
-        debug!("perm updated");
     }
 }
 
