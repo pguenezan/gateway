@@ -59,7 +59,7 @@ pub async fn get_perm() -> Result<(
     let mut user_role = HashMap::new();
 
     for perm_uri in RUNTIME_CONFIG.get().unwrap().perm_uris.iter().as_ref() {
-        match fetch_perm(&perm_uri).await {
+        match fetch_perm(perm_uri).await {
             Some(perm_vec) => {
                 for perm in perm_vec.iter() {
                     if is_role_perm.is_match(&perm.role_name) {

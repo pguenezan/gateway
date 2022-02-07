@@ -28,7 +28,9 @@ pub struct ApiDefinitionSpec {
     #[serde(default = "forward_path_default")]
     pub forward_path: String,
     #[serde(skip)]
-    pub uri: String,
+    pub uri_http: String,
+    #[serde(skip)]
+    pub uri_ws: String,
 }
 
 fn forward_path_default() -> String {
@@ -46,7 +48,8 @@ impl ApiDefinition {
     }
 
     pub fn build_uri(&mut self) {
-        self.spec.uri = format!("http://{}{}", &self.spec.host, &self.spec.forward_path);
+        self.spec.uri_http = format!("http://{}{}", &self.spec.host, &self.spec.forward_path);
+        self.spec.uri_ws = format!("ws://{}{}", &self.spec.host, &self.spec.forward_path);
     }
 
     fn check_app_name(&self) -> Result<(), String> {
