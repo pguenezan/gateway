@@ -25,9 +25,14 @@ pub struct ApiDefinitionSpec {
     pub app_name: String,
     pub host: String,
     pub mode: ApiMode,
+    #[serde(default = "forward_path_default")]
     pub forward_path: String,
     #[serde(skip)]
     pub uri: String,
+}
+
+fn forward_path_default() -> String {
+    "".to_string()
 }
 
 impl ApiDefinition {

@@ -18,7 +18,7 @@ pub async fn update_api(
     let client = match Client::try_default().await {
         Ok(client) => client,
         Err(e) => {
-            error!("{}", e);
+            error!("kube client: {:?}", e);
             return;
         }
     };
@@ -30,7 +30,7 @@ pub async fn update_api(
     loop {
         match apply_apidefinitions.try_next().await {
             Err(e) => {
-                error!("{}", e);
+                error!("crd stream: {:?}", e);
                 return;
             }
             Ok(None) => {
@@ -39,17 +39,17 @@ pub async fn update_api(
             }
             Ok(Some(ref apidefinition)) => match apidefinition.check_fields() {
                 Err(e) => {
-                    error!("{}", e);
+                    error!("invalid apidefinition {}", e);
                     return;
                 }
                 Ok(_) => {
                     let node = Node::new(apidefinition);
                     let mut api_write = api_lock.write().await;
-                    let mut built_appdefinition = apidefinition.clone();
-                    built_appdefinition.build_uri();
+                    let mut built_apidefinition = apidefinition.clone();
+                    built_apidefinition.build_uri();
                     api_write.insert(
-                        built_appdefinition.spec.app_name.clone(),
-                        (built_appdefinition, node),
+                        built_apidefinition.spec.app_name.clone(),
+                        (built_apidefinition, node),
                     );
                     println!(
                         "{} api updated from {:?}",
