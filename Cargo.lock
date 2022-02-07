@@ -362,7 +362,7 @@ dependencies = [
 
 [[package]]
 name = "gateway"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "bytes",
  "env_logger",
@@ -385,6 +385,7 @@ dependencies = [
  "serde_json",
  "serde_yaml",
  "tokio",
+ "tokio-tungstenite",
  "url",
 ]
 

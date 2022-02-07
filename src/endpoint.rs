@@ -27,6 +27,14 @@ fn is_websocket_default() -> bool {
 }
 
 impl Endpoint {
+    pub(crate) fn from_forward_all(path: String, method: String, app: &str) -> Self {
+        Self {
+            permission: format!("{}::{}::FULL_ACCESS", &app[1..], &method),
+            path,
+            method,
+            is_websocket: false,
+        }
+    }
     pub(crate) fn check_fields(&self) -> Result<(), String> {
         self.check_path()?;
         self.check_parameters()?;
@@ -60,7 +68,8 @@ impl Endpoint {
             }
             let preceded = captures.get(1).unwrap().as_str();
             let succeed = captures.get(3).unwrap().as_str();
-            if preceded != "/" { //|| succeed != "/" {
+            if preceded != "/" {
+                //|| succeed != "/" {
                 return Err(format!(
                     "param: `{}` must be preceded and succeed by `/` not (`{}`, `{}`) in path `{}`",
                     content, preceded, succeed, path

@@ -10,6 +10,7 @@ use serde::Deserialize;
 use once_cell::sync::OnceCell;
 
 use hyper::http::Uri;
+use tokio_tungstenite::tungstenite::protocol::WebSocketConfig;
 
 #[derive(Debug, Deserialize)]
 pub struct PermUri {
@@ -27,6 +28,14 @@ pub struct AuthSource {
 }
 
 #[derive(Debug, Deserialize)]
+struct WebSocketConfigInternal {
+    max_send_queue: usize,
+    max_message_size: usize,
+    max_frame_size: usize,
+    accept_unmasked_frames: bool,
+}
+
+#[derive(Debug, Deserialize)]
 pub struct RuntimeConfig {
     pub bind_to: String,
     pub crd_label: String,
@@ -34,6 +43,7 @@ pub struct RuntimeConfig {
     pub perm_uris: Vec<PermUri>,
     pub perm_update_delay: u64,
     pub auth_sources: Vec<AuthSource>,
+    websocket_config: WebSocketConfigInternal,
 }
 
 type Result<T> = std::result::Result<T, Box<dyn error::Error>>;
@@ -56,4 +66,15 @@ pub fn init_runtime_config() -> Result<()> {
     let path = Path::new(args.get(1).unwrap());
     RUNTIME_CONFIG.set(get_runtime_config(path)?).unwrap();
     Ok(())
+}
+
+impl RuntimeConfig {
+    pub fn get_websocket_config(&self) -> WebSocketConfig {
+        WebSocketConfig {
+            max_send_queue: Some(self.websocket_config.max_send_queue),
+            max_message_size: Some(self.websocket_config.max_message_size),
+            max_frame_size: Some(self.websocket_config.max_frame_size),
+            accept_unmasked_frames: self.websocket_config.accept_unmasked_frames,
+        }
+    }
 }

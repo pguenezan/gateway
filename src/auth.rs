@@ -64,7 +64,7 @@ pub fn init_token_sources() {
         .unwrap()
         .auth_sources
         .iter()
-        .map(|auth_source| TokenSource::new(auth_source))
+        .map(TokenSource::new)
         .collect();
     if TOKEN_SOURCES.set(token_sources).is_err() {
         error!("fail to set TOKEN_SOURCES");

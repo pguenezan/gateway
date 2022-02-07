@@ -42,7 +42,7 @@ impl Node {
                 self.endpoint_set.insert(endpoint.method.clone(), endpoint);
             }
             Some(current_path) => {
-                match IS_PARAM.is_match(&current_path) {
+                match IS_PARAM.is_match(current_path) {
                     false => match self.sub_route.get_mut(current_path) {
                         Some(next_node) => {
                             next_node.insert(split_path, endpoint);
@@ -101,7 +101,7 @@ impl Node {
                     Some(sub_node) => node = sub_node,
                     None => match &node.param {
                         None => return None,
-                        Some(sub_node) => node = &sub_node,
+                        Some(sub_node) => node = sub_node,
                     },
                 },
             }
