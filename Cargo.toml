@@ -1,6 +1,6 @@
 [package]
 name = "gateway"
-version = "0.3.0"
+version = "0.3.1"
 authors = ["pguenezan <paul@guenezan.me>"]
 edition = "2018"
 

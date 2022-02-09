@@ -408,7 +408,7 @@ async fn response(
                         &req_size,
                     );
                 }
-                Ok(authorization) => authorization,
+                Ok(authorization) => format!("Bearer {}", authorization),
             },
         },
         Some(authorization) => match authorization.to_str() {
@@ -422,10 +422,10 @@ async fn response(
                     &req_size,
                 );
             }
-            Ok(authorization) => authorization,
+            Ok(authorization) => authorization.to_string(),
         },
     };
-    let (claims, token_type) = match get_claims(authorization).await {
+    let (claims, token_type) = match get_claims(&authorization).await {
         Some(claims) => claims,
         None => {
             debug!("no or missing claims in authorization");
