@@ -11,10 +11,10 @@ use hyper::body::HttpBody;
 use hyper::client::HttpConnector;
 use hyper::header::{
     HeaderValue, ACCESS_CONTROL_ALLOW_HEADERS, ACCESS_CONTROL_ALLOW_METHODS,
-    ACCESS_CONTROL_ALLOW_ORIGIN, AUTHORIZATION, CONTENT_TYPE, SEC_WEBSOCKET_PROTOCOL,
+    ACCESS_CONTROL_ALLOW_ORIGIN, AUTHORIZATION, CONTENT_TYPE,
 };
 use hyper::service::{make_service_fn, service_fn};
-use hyper::{Body, Client, HeaderMap, Method, Request, Response, Server, StatusCode};
+use hyper::{Body, Client, HeaderMap, Method, Request, Response, Server, StatusCode, Uri};
 use hyper_tungstenite::is_upgrade_request;
 
 use lazy_static::lazy_static;
@@ -25,6 +25,7 @@ use prometheus::{
     exponential_buckets, opts, register_counter_vec, register_histogram_vec, CounterVec, Encoder,
     HistogramVec, TextEncoder,
 };
+use url::Url;
 
 #[macro_use]
 extern crate log;
@@ -335,6 +336,17 @@ async fn call(
     }
 }
 
+fn get_auth_from_url(uri: &Uri) -> Option<String> {
+    let url = Url::parse(&format!("http://localhost{}", uri.path_and_query()?)).ok()?;
+    for (key, value) in url.query_pairs() {
+        if key != "_auth_token" {
+            continue;
+        }
+        return Some(format!("Bearer {}", value));
+    }
+    None
+}
+
 async fn response(
     req: Request<Body>,
     client: Client<HttpConnector>,
@@ -386,7 +398,7 @@ async fn response(
     }
 
     let authorization = match req.headers().get(AUTHORIZATION) {
-        None => match req.headers().get(SEC_WEBSOCKET_PROTOCOL) {
+        None => match get_auth_from_url(req.uri()) {
             None => {
                 debug!("no Authorization header");
                 return get_response(
@@ -397,19 +409,7 @@ async fn response(
                     &req_size,
                 );
             }
-            Some(autorization) => match autorization.to_str() {
-                Err(e) => {
-                    debug!("error in authorization: {:#?}", e);
-                    return get_response(
-                        StatusCode::FORBIDDEN,
-                        FORBIDDEN,
-                        &labels,
-                        &start_time,
-                        &req_size,
-                    );
-                }
-                Ok(authorization) => format!("Bearer {}", authorization),
-            },
+            Some(authorization) => authorization,
         },
         Some(authorization) => match authorization.to_str() {
             Err(e) => {
