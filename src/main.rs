@@ -11,7 +11,7 @@ use hyper::body::HttpBody;
 use hyper::client::HttpConnector;
 use hyper::header::{
     HeaderValue, ACCESS_CONTROL_ALLOW_HEADERS, ACCESS_CONTROL_ALLOW_METHODS,
-    ACCESS_CONTROL_ALLOW_ORIGIN, AUTHORIZATION, CONTENT_TYPE,
+    ACCESS_CONTROL_ALLOW_ORIGIN, AUTHORIZATION, CONTENT_TYPE, SEC_WEBSOCKET_PROTOCOL,
 };
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Client, HeaderMap, Method, Request, Response, Server, StatusCode};
@@ -386,16 +386,31 @@ async fn response(
     }
 
     let authorization = match req.headers().get(AUTHORIZATION) {
-        None => {
-            debug!("no Authorization header");
-            return get_response(
-                StatusCode::FORBIDDEN,
-                FORBIDDEN,
-                &labels,
-                &start_time,
-                &req_size,
-            );
-        }
+        None => match req.headers().get(SEC_WEBSOCKET_PROTOCOL) {
+            None => {
+                debug!("no Authorization header");
+                return get_response(
+                    StatusCode::FORBIDDEN,
+                    FORBIDDEN,
+                    &labels,
+                    &start_time,
+                    &req_size,
+                );
+            }
+            Some(autorization) => match autorization.to_str() {
+                Err(e) => {
+                    debug!("error in authorization: {:#?}", e);
+                    return get_response(
+                        StatusCode::FORBIDDEN,
+                        FORBIDDEN,
+                        &labels,
+                        &start_time,
+                        &req_size,
+                    );
+                }
+                Ok(authorization) => authorization,
+            },
+        },
         Some(authorization) => match authorization.to_str() {
             Err(e) => {
                 debug!("error in authorization: {:#?}", e);
