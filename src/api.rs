@@ -110,6 +110,8 @@ impl ApiDefinition {
     }
 
     pub fn try_from(value: &DynamicObject) -> Result<Self> {
+        // It more simple to let kube and serde crate do object deserialization as we just have to
+        // maintain the ApiDefinitionSpec struct and not all the boiler plate around.
         return serde_yaml::from_str(serde_yaml::to_string(value)?.as_str())
             .map_err(anyhow::Error::from);
     }
