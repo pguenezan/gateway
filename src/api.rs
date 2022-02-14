@@ -5,6 +5,8 @@ use kube::CustomResource;
 use schemars::JsonSchema;
 
 use crate::endpoint::Endpoint;
+use anyhow::Result;
+use kube::core::DynamicObject;
 
 #[derive(Deserialize, Serialize, Debug, Clone, JsonSchema)]
 #[serde(rename_all(deserialize = "snake_case"))]
@@ -105,5 +107,10 @@ impl ApiDefinition {
         }
 
         Ok(())
+    }
+
+    pub fn try_from(value: &DynamicObject) -> Result<Self> {
+        return serde_yaml::from_str(serde_yaml::to_string(value)?.as_str())
+            .map_err(anyhow::Error::from);
     }
 }
