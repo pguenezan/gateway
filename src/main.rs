@@ -5,7 +5,6 @@ use std::time::Instant;
 
 use std::sync::Arc;
 use tokio::sync::RwLock;
-
 use http_body::SizeHint;
 use hyper::body::HttpBody;
 use hyper::client::HttpConnector;
@@ -239,6 +238,7 @@ async fn health() -> Result<Response<Body>> {
         .unwrap())
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn call(
     mut req: Request<Body>,
     client: &Client<HttpConnector>,
