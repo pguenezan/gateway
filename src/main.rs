@@ -3,8 +3,6 @@ use std::net::SocketAddr;
 use std::process::exit;
 use std::time::Instant;
 
-use std::sync::Arc;
-use tokio::sync::RwLock;
 use http_body::SizeHint;
 use hyper::body::HttpBody;
 use hyper::client::HttpConnector;
@@ -15,6 +13,8 @@ use hyper::header::{
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Client, HeaderMap, Method, Request, Response, Server, StatusCode, Uri};
 use hyper_tungstenite::is_upgrade_request;
+use std::sync::Arc;
+use tokio::sync::RwLock;
 
 use lazy_static::lazy_static;
 
@@ -119,6 +119,8 @@ fn get_response(
         &response.size_hint(),
     );
 
+    debug!("event='Response built'");
+
     Ok(response)
 }
 
@@ -192,24 +194,38 @@ fn inject_headers(
     }
     if let Ok(value) = claims.token_id.parse() {
         headers.insert("X-Forwarded-User", value);
-    };
+    } else {
+        info!("event='No token_id in token'");
+    }
     if let Ok(value) = claims.preferred_username.parse() {
         headers.insert("X-Forwarded-User-Username", value);
-    };
+    } else {
+        info!("event='No username in token'");
+    }
     if let Ok(value) = claims.given_name.parse() {
         headers.insert("X-Forwarded-User-First-Name", value);
-    };
+    } else {
+        info!("event='No user first name in token'");
+    }
     if let Ok(value) = claims.family_name.parse() {
         headers.insert("X-Forwarded-User-Last-Name", value);
-    };
+    } else {
+        info!("event='No user last name in token'");
+    }
     if let Ok(value) = claims.email.parse() {
         headers.insert("X-Forwarded-User-Email", value);
+    } else {
+        info!("event='No user email in token'");
     }
     if let Ok(value) = app_user_roles.parse() {
         headers.insert("X-Forwarded-User-Roles", value);
+    } else {
+        info!("event='No user roles in token'");
     }
     if let Ok(value) = token_type.parse() {
         headers.insert("X-Forwarded-User-Type", value);
+    } else {
+        info!("event='No token type in token'");
     }
 }
 
@@ -256,19 +272,24 @@ async fn call(
     method_str: &str,
 ) -> Result<Response<Body>> {
     match has_perm(perm_lock, &endpoint.permission, &claims.token_id).await {
-        false => get_response(
-            StatusCode::FORBIDDEN,
-            FORBIDDEN,
-            labels,
-            start_time,
-            req_size,
-        ),
+        false => {
+            debug!("event='Return forbidden response'");
+            get_response(
+                StatusCode::FORBIDDEN,
+                FORBIDDEN,
+                labels,
+                start_time,
+                req_size,
+            )
+        }
         true => {
             if endpoint.is_websocket && is_upgrade_request(&req) {
                 return handle_upgrade(req, labels, start_time, req_size, ws_uri_string).await;
             }
 
             if endpoint.is_websocket {
+                debug!("event='Websocket require upgrade'");
+
                 return get_response(
                     StatusCode::UPGRADE_REQUIRED,
                     NO_CONTENT,
@@ -280,7 +301,8 @@ async fn call(
 
             match http_uri_string.parse() {
                 Ok(uri) => *req.uri_mut() = uri,
-                Err(_) => {
+                Err(e) => {
+                    error!("error='Uri parsing error: {:?}'", e);
                     return get_response(
                         StatusCode::NOT_FOUND,
                         NOT_FOUND,
@@ -311,18 +333,24 @@ async fn call(
                         &response.size_hint(),
                     );
                     info!(
-                        "user: {} ({}, {}), {} {} - {}",
-                        claims.preferred_username,
-                        claims.token_id,
-                        claims.sub,
+                        "method='{}' uri='{}' status_code='{}' user_sub='{}' token_id='{}'",
                         method_str,
                         http_uri_string,
-                        response.status()
+                        response.status(),
+                        claims.sub,
+                        claims.token_id,
                     );
                     Ok(response)
                 }
                 Err(error) => {
-                    warn!("502 for {}: {:?}", http_uri_string, error);
+                    warn!(
+                        "method='{}' uri='{}' status_code='502' user_sub='{}' token_id='{}' error='{:?}'",
+                        method_str,
+                        http_uri_string,
+                        claims.sub,
+                        claims.token_id,
+                        error
+                    );
                     get_response(
                         StatusCode::BAD_GATEWAY,
                         BAD_GATEWAY,
@@ -344,6 +372,7 @@ fn get_auth_from_url(uri: &Uri) -> Option<String> {
         }
         return Some(format!("Bearer {}", value));
     }
+    info!("event='No authorization header found'");
     None
 }
 
@@ -356,9 +385,11 @@ async fn response(
 ) -> Result<Response<Body>> {
     match req.uri().path() {
         "/metrics" => {
+            debug!("event='Metrics endpoint'");
             return metrics().await;
         }
         "/health" => {
+            debug!("event='Health endpoint'");
             return health().await;
         }
         _ => (),
@@ -373,6 +404,7 @@ async fn response(
     let slash_index = match path[1..].find('/') {
         Some(slash_index) => slash_index + 1,
         None => {
+            warn!("method='{}' uri='{}' status_code='404' user_sub='Not yet decoded' token_id='Not yet decoded' error='No / found'", method_str, path);
             return get_response(
                 StatusCode::NOT_FOUND,
                 NOT_FOUND,
@@ -388,6 +420,7 @@ async fn response(
 
     // to handle CORS pre flights
     if req.method() == Method::OPTIONS {
+        info!("method='{}' uri='{}' status_code='204' user_sub='Not yet decoded' token_id='Not yet decoded'", method_str, path);
         return get_response(
             StatusCode::NO_CONTENT,
             NO_CONTENT,
@@ -400,7 +433,7 @@ async fn response(
     let authorization = match req.headers().get(AUTHORIZATION) {
         None => match get_auth_from_url(req.uri()) {
             None => {
-                debug!("no Authorization header");
+                info!("method='{}' uri='{}' status_code='403' user_sub='Not yet decoded' token_id='Not yet decoded' error='No authorization header'", method_str, path);
                 return get_response(
                     StatusCode::FORBIDDEN,
                     FORBIDDEN,
@@ -413,7 +446,7 @@ async fn response(
         },
         Some(authorization) => match authorization.to_str() {
             Err(e) => {
-                debug!("error in authorization: {:#?}", e);
+                info!("method='{}' uri='{}' status_code='403' user_sub='Not yet decoded' token_id='Not yet decoded' error='{}'", method_str, path, format!("Error in authorization: {:#?}", e));
                 return get_response(
                     StatusCode::FORBIDDEN,
                     FORBIDDEN,
@@ -428,7 +461,7 @@ async fn response(
     let (claims, token_type) = match get_claims(&authorization).await {
         Some(claims) => claims,
         None => {
-            debug!("no or missing claims in authorization");
+            info!("method='{}' uri='{}' status_code='403' user_sub='Not yet decoded' token_id='Not yet decoded' error='Missing claim or no claim found'", method_str, path);
             return get_response(
                 StatusCode::FORBIDDEN,
                 FORBIDDEN,
@@ -442,6 +475,7 @@ async fn response(
     let forwarded_uri = match req.uri().path_and_query().map(|x| &x.as_str()[app.len()..]) {
         Some(forwarded_uri) => forwarded_uri,
         None => {
+            info!("method='{}' uri='{}' status_code='404' user_sub='Not yet decoded' token_id='Not yet decoded' error='Forward api not found'", method_str, path);
             return get_response(
                 StatusCode::NOT_FOUND,
                 NOT_FOUND,
@@ -455,13 +489,16 @@ async fn response(
     let forwarded_path = &req.uri().path()[app.len()..];
 
     match api_lock.read().await.get(app) {
-        None => get_response(
-            StatusCode::NOT_FOUND,
-            NOT_FOUND,
-            &labels,
-            &start_time,
-            &req_size,
-        ),
+        None => {
+            info!("method='{}' uri='{}' status_code='404' user_sub='{}' token_id='{}' error='Forward api not found'", method_str, path, claims.sub, claims.token_id);
+            get_response(
+                StatusCode::NOT_FOUND,
+                NOT_FOUND,
+                &labels,
+                &start_time,
+                &req_size,
+            )
+        }
         Some((api, node)) => match api.spec.mode {
             ApiMode::ForwardAll => {
                 let endpoint = Endpoint::from_forward_all(
@@ -490,13 +527,16 @@ async fn response(
                 .await
             }
             ApiMode::ForwardStrict(_) => match node.match_path(forwarded_path, method_str) {
-                None => get_response(
-                    StatusCode::NOT_FOUND,
-                    NOT_FOUND,
-                    &labels,
-                    &start_time,
-                    &req_size,
-                ),
+                None => {
+                    info!("method='{}' uri='{}' status_code='404' user_sub='{}' token_id='{}' error='Endpoint not found in service'", method_str, path, claims.sub, claims.token_id);
+                    get_response(
+                        StatusCode::NOT_FOUND,
+                        NOT_FOUND,
+                        &labels,
+                        &start_time,
+                        &req_size,
+                    )
+                }
                 Some(endpoint) => {
                     let http_uri_string = format!("{}{}", &api.spec.uri_http, forwarded_uri);
                     let ws_uri_string = format!("{}{}", &api.spec.uri_ws, forwarded_uri);
@@ -527,7 +567,7 @@ async fn response(
 async fn main() -> Result<()> {
     env_logger::init();
     if let Err(e) = init_runtime_config() {
-        error!("runtime config is not valid: {}", e);
+        error!("event='Runtime config is not valid: {}'", e);
         exit(1);
     };
     init_token_sources();
@@ -535,7 +575,7 @@ async fn main() -> Result<()> {
     let addr: SocketAddr = match RUNTIME_CONFIG.get().unwrap().bind_to.parse() {
         Ok(addr) => addr,
         Err(_) => {
-            error!("bind_to is not valid");
+            error!("event='Address bind_to is not valid'");
             exit(1);
         }
     };
@@ -577,7 +617,7 @@ async fn main() -> Result<()> {
     });
 
     let server = Server::bind(&addr).serve(make_service);
-    info!("Listening on http://{}", addr);
+    info!("event='Listening on http://{}'", addr);
 
     let res = tokio::try_join!(update_perm, update_api, async {
         server.await.map_err(|e| anyhow!(e))
