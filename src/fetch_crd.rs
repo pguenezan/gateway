@@ -21,8 +21,9 @@ pub async fn update_api(
     let client = match Client::try_default().await {
         Ok(client) => client,
         Err(e) => {
-            error!("kube client: {:?}", e);
-            bail!("kube client: {:?}", e);
+            let err_msg = format!("kube client: {:?}", e);
+            error!("event='{}'", err_msg);
+            bail!(err_msg);
         }
     };
     let group = "gateway.dgexsol.fr";
@@ -42,23 +43,27 @@ pub async fn update_api(
     loop {
         match apply_apidefinitions.try_next().await {
             Err(e) => {
-                error!("crd stream: {:?}", e);
-                bail!("crd stream: {:?}", e);
+                let err_msg = format!("Crd stream: {:?}", e);
+                error!("event='{}'", err_msg);
+                bail!(err_msg);
             }
             Ok(None) => {
-                info!("No apidefinition found");
+                info!("event='No apidefinition found'");
             }
             Ok(Some(ref apidefinition)) => match ApiDefinition::try_from(apidefinition) {
                 Err(e) => {
-                    error!(
-                        "Invalid apidefinition, an error occurs during parsing: {}",
+                    let err_msg = format!(
+                        "event='An error occurs during apidefinition parsing: {}'",
                         e
                     );
+                    error!("event='{}'", err_msg);
+                    bail!(err_msg);
                 }
                 Ok(apidefinition) => match apidefinition.check_fields() {
                     Err(e) => {
-                        error!("Invalid apidefinition: {}", e);
-                        bail!("Invalid apidefinition: {}", e);
+                        let err_msg = format!("Invalid apidefinition: {}", e);
+                        error!("event='{}'", err_msg);
+                        bail!(err_msg);
                     }
                     Ok(_) => {
                         let node = Node::new(&apidefinition);
@@ -69,8 +74,8 @@ pub async fn update_api(
                             built_apidefinition.spec.app_name.clone(),
                             (built_apidefinition, node),
                         );
-                        println!(
-                            "{} api updated from {:?}",
+                        info!(
+                            "event='{} api updated from {:?}'",
                             &apidefinition.spec.app_name,
                             &apidefinition
                                 .metadata

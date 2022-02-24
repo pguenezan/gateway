@@ -61,47 +61,55 @@ impl Endpoint {
             let captures = match_param.captures(&mut_path).unwrap();
             let content = captures.get(2).unwrap().as_str();
             if content.contains('{') || content.contains('}') {
-                return Err(format!(
+                let err_msg = format!(
                     "param: `{}` contains `{{` or `}}` in path `{}`",
                     content, path
-                ));
+                );
+                info!("event='{}'", err_msg);
+                Err(err_msg)
             }
             let preceded = captures.get(1).unwrap().as_str();
             let succeed = captures.get(3).unwrap().as_str();
             if preceded != "/" {
-                //|| succeed != "/" {
-                return Err(format!(
+                let err_msg = format!(
                     "param: `{}` must be preceded and succeed by `/` not (`{}`, `{}`) in path `{}`",
                     content, preceded, succeed, path
-                ));
+                );
+                info!("event='{}'", err_msg);
+                return Err(err_msg);
             }
             mut_path = match_param
                 .replace(&format!("{{{}}}", &content), "")
                 .to_string();
         }
-        // if mut_path.contains('{') || mut_path.contains('}') {
-        //     return Err(format!("path: `{}` contains/is missing `{{` or `}}`", path));
-        // }
         Ok(())
     }
 
     fn check_path(&self) -> Result<(), String> {
         if self.path.is_empty() {
-            return Err(format!("path: {} must be at least 1 characters", self.path));
+            let err_msg = format!("path: {} must be at least 1 characters", self.path);
+            info!("event='{}'", err_msg);
+            return Err(err_msg);
         }
         if !self.path.starts_with('/') {
-            return Err(format!("path: {} should start with `/`", self.path));
+            let err_msg = format!("path: {} should start with `/`", self.path);
+            info!("event='{}'", err_msg);
+            return Err(err_msg);
         }
-        // if !self.path.ends_with('/') {
-        //     return Err(format!("path: {} should end with `/`", self.path));
-        // }
 
         Ok(())
     }
 
     fn check_method(&self) -> Result<(), String> {
-        Method::from_str(&self.method)
+        match Method::from_str(&self.method)
             .map(|_| ())
             .map_err(|err| format!("couldn't parse method: {}", err))
+        {
+            Ok(_) => Ok(()),
+            Err(err_msg) => {
+                info!("event='{}'", err_msg);
+                return Err(err_msg);
+            }
+        }
     }
 }
