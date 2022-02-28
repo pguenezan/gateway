@@ -56,47 +56,58 @@ impl ApiDefinition {
 
     fn check_app_name(&self) -> Result<(), String> {
         if self.spec.app_name.len() < 2 {
-            return Err(format!(
+            let err_msg = format!(
                 "app_name: {} must be at least 2 characters",
                 self.spec.app_name
-            ));
+            );
+            info!("event='{}", err_msg);
+            return Err(err_msg);
         }
         if !self.spec.app_name.starts_with('/') {
-            return Err(format!(
-                "app_name: {} should start with `/`",
-                self.spec.app_name
-            ));
+            let err_msg = format!("app_name: {} should start with `/`", self.spec.app_name);
+            info!("event='{}", err_msg);
+            return Err(err_msg);
         }
         if self.spec.app_name[1..].contains('/') {
-            return Err(format!(
-                "app_name: {} should only have one `/`",
-                self.spec.app_name
-            ));
+            let err_msg = format!("app_name: {} should only have one `/`", self.spec.app_name);
+            info!("event='{}", err_msg);
+            return Err(err_msg);
         }
         if self.spec.app_name == "/metrics" || self.spec.app_name == "/health" {
-            return Err(format!(
+            let err_msg = format!(
                 "app_name: {} cannot be `/metrics` or `/health`",
                 self.spec.app_name
-            ));
+            );
+            info!("event='{}", err_msg);
+            return Err(err_msg);
         }
 
         Ok(())
     }
 
     fn check_host(&self) -> Result<(), String> {
-        Url::parse(&format!("http://{}", self.spec.host))
+        match Url::parse(&format!("http://{}", self.spec.host))
             .map(|_| ())
             .map_err(|_| format!("host: {} isn't valid", self.spec.host))
+        {
+            Ok(_) => Ok(()),
+            Err(e) => {
+                info!("event='{:?}", e);
+                anyhow::Result::Err(e)
+            }
+        }
     }
 
     fn check_forward_path(&self) -> Result<(), String> {
         if self.spec.forward_path.is_empty() || self.spec.forward_path.starts_with('/') {
             return Ok(());
         }
-        Err(format!(
-            "forward_path: {} should start with `/`",
+        let err_msg = format!(
+            "Forward_path: {} should start with `/`",
             self.spec.forward_path
-        ))
+        );
+        info!("event='{}'", err_msg);
+        Err(err_msg)
     }
 
     fn check_endpoints(&self) -> Result<(), String> {

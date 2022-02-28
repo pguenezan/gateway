@@ -39,7 +39,7 @@ pub async fn handle_upgrade(
     )?;
     let ws_server = create_ws_server(ws_uri_string).await;
     if let Err(error) = ws_server {
-        warn!("502 for {}: {:?}", ws_uri_string, error);
+        info!("method='Not yet decoded' uri='{}' status_code='502' user_sub='Not yet decoded' token_id='Not yet decoded' error='Websocket: {}'", ws_uri_string, error);
         return get_response(
             StatusCode::BAD_GATEWAY,
             BAD_GATEWAY,
@@ -50,7 +50,7 @@ pub async fn handle_upgrade(
     }
     spawn(async move {
         if let Err(e) = serve_websocket(ws_client, ws_server.unwrap()).await {
-            warn!("Error in websocket connection: {:?}", e);
+            warn!("event='Error in websocket connection: {:?}'", e);
         }
     });
     commit_metrics(
@@ -87,20 +87,19 @@ async fn serve_websocket(ws_client: HyperWebsocket, ws_server: ServerWebSocket) 
         move |mut tx_server: TxServerSink, mut rx_client: RxClientStream| async move {
             async fn close_tx(tx_server: &mut TxServerSink) {
                 if let Err(e) = tx_server.close().await {
-                    warn!("fail to close server socket: {:?}", e);
+                    warn!("event='Fail to close server socket: {:?}'", e);
                 }
             }
             while let Some(message) = rx_client.next().await {
                 match message {
                     Err(e) => {
-                        warn!("error in client message: {:?}", e);
+                        warn!("event='Error in client message: {:?}'", e);
                         close_tx(&mut tx_server).await;
                         return Err(e);
                     }
                     Ok(message) => {
-                        info!("message from client: {}", message);
                         if let Err(e) = tx_server.send(message).await {
-                            warn!("fail to send message to server: {:?}", e);
+                            warn!("event='Fail to send message to server: {:?}'", e);
                             close_tx(&mut tx_server).await;
                             return Err(e);
                         }
@@ -113,20 +112,19 @@ async fn serve_websocket(ws_client: HyperWebsocket, ws_server: ServerWebSocket) 
         move |mut tx_client: TxClientSink, mut rx_server: RxServerStream| async move {
             async fn close_tx(tx_client: &mut TxClientSink) {
                 if let Err(e) = tx_client.close().await {
-                    warn!("fail to close server socket: {:?}", e);
+                    warn!("event='Fail to close server socket: {:?}'", e);
                 }
             }
             while let Some(message) = rx_server.next().await {
                 match message {
                     Err(e) => {
-                        warn!("error in server message: {:?}", e);
+                        warn!("event='Error in server message: {:?}'", e);
                         close_tx(&mut tx_client).await;
                         return Err(e);
                     }
                     Ok(message) => {
-                        info!("message from server: {}", message);
                         if let Err(e) = tx_client.send(message).await {
-                            warn!("fail to send message to server: {:?}", e);
+                            warn!("event='Fail to send message to server: {:?}'", e);
                             close_tx(&mut tx_client).await;
                             return Err(e);
                         }
@@ -141,7 +139,7 @@ async fn serve_websocket(ws_client: HyperWebsocket, ws_server: ServerWebSocket) 
 
     pin_mut!(client_to_server, server_to_client);
     if let Err(e) = try_join!(client_to_server, server_to_client) {
-        warn!("websocket error: {:?}", e)
+        warn!("event='Websocket error: {:?}'", e)
     }
     Ok(())
 }

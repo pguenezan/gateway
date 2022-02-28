@@ -67,15 +67,17 @@ pub fn init_token_sources() {
         .map(TokenSource::new)
         .collect();
     if TOKEN_SOURCES.set(token_sources).is_err() {
-        error!("fail to set TOKEN_SOURCES");
+        error!("event='Fail to set TOKEN_SOURCES'");
         exit(1);
     }
 }
 
 pub async fn get_claims(authorization: &str) -> Option<(Claims, String)> {
     if authorization.len() <= AUTH_SHIFT {
+        warn!("event='An error occurs while getting claim, no claim'");
         return None;
     }
+    let mut errors = Vec::new();
     for token_source in TOKEN_SOURCES.get().unwrap().iter().as_ref() {
         match decode::<Claims>(
             &authorization[AUTH_SHIFT..],
@@ -84,9 +86,10 @@ pub async fn get_claims(authorization: &str) -> Option<(Claims, String)> {
         ) {
             Ok(token) => return Some((token.claims, token_source.token_type.to_string())),
             Err(e) => {
-                error!("{} {}", token_source.name, e);
+                errors.push(format!("{}: {}", token_source.name, e));
             }
         }
     }
+    warn!("event='An error occurs while getting claim: {:?}'", errors);
     None
 }

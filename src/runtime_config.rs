@@ -61,7 +61,10 @@ fn get_runtime_config<P: AsRef<Path>>(path: P) -> Result<RuntimeConfig> {
 pub fn init_runtime_config() -> Result<()> {
     let args: Vec<String> = env::args().collect();
     if args.len() != 2 {
-        error!("usage: {} runtime_config.yaml", args.first().unwrap());
+        error!(
+            "event='usage: {} runtime_config.yaml'",
+            args.first().unwrap()
+        );
         exit(1);
     }
     let path = Path::new(args.get(1).unwrap());
