@@ -66,7 +66,7 @@ impl Endpoint {
                     content, path
                 );
                 info!("event='{}'", err_msg);
-                Err(err_msg)
+                return Err(err_msg);
             }
             let preceded = captures.get(1).unwrap().as_str();
             let succeed = captures.get(3).unwrap().as_str();
@@ -108,7 +108,7 @@ impl Endpoint {
             Ok(_) => Ok(()),
             Err(err_msg) => {
                 info!("event='{}'", err_msg);
-                return Err(err_msg);
+                Err(err_msg)
             }
         }
     }
