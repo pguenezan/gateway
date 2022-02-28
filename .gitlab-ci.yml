@@ -21,7 +21,7 @@ stages:
       - .cargo/git/db
 
 format:
-  image: rust
+  image: rust:1.58.1
   stage: lints
   before_script:
     - rustup component add rustfmt
@@ -30,7 +30,7 @@ format:
 
 clippy:
   extends: .cache
-  image: rust
+  image: rust:1.58.1
   stage: lints
   before_script:
     - rustup component add clippy
