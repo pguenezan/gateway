@@ -271,9 +271,18 @@ async fn call(
     token_type: &str,
     method_str: &str,
 ) -> Result<Response<Body>> {
+    let path = &req.uri().path().to_owned();
     match has_perm(perm_lock, &endpoint.permission, &claims.token_id).await {
         false => {
-            debug!("event='Return forbidden response'");
+            info!(
+                "method='{}' path='{}' uri='{}' status_code='403' user_sub='{}' token_id='{}' error='Does not have the permission' perm='{}'",
+                method_str,
+                path,
+                http_uri_string,
+                claims.sub,
+                claims.token_id,
+                &endpoint.permission,
+            );
             get_response(
                 StatusCode::FORBIDDEN,
                 FORBIDDEN,
@@ -333,23 +342,27 @@ async fn call(
                         &response.size_hint(),
                     );
                     info!(
-                        "method='{}' uri='{}' status_code='{}' user_sub='{}' token_id='{}'",
+                        "method='{}' path='{}' uri='{}' status_code='{}' user_sub='{}' token_id='{}' perm='{}'",
                         method_str,
+                        path,
                         http_uri_string,
                         response.status(),
                         claims.sub,
                         claims.token_id,
+                        &endpoint.permission,
                     );
                     Ok(response)
                 }
                 Err(error) => {
                     warn!(
-                        "method='{}' uri='{}' status_code='502' user_sub='{}' token_id='{}' error='{:?}'",
+                        "method='{}' path='{}' uri='{}' status_code='502' user_sub='{}' token_id='{}' error='{:?}' perm='{}'",
                         method_str,
+                        path,
                         http_uri_string,
                         claims.sub,
                         claims.token_id,
-                        error
+                        error,
+                        &endpoint.permission
                     );
                     get_response(
                         StatusCode::BAD_GATEWAY,
@@ -397,6 +410,7 @@ async fn response(
 
     let start_time = Instant::now();
 
+    let uri = &req.uri().to_owned();
     let path = &req.uri().path().to_owned();
     let method_str: &str = &req.method().to_string();
     let req_size = req.size_hint();
@@ -404,7 +418,7 @@ async fn response(
     let slash_index = match path[1..].find('/') {
         Some(slash_index) => slash_index + 1,
         None => {
-            warn!("method='{}' uri='{}' status_code='404' user_sub='Not yet decoded' token_id='Not yet decoded' error='No / found'", method_str, path);
+            warn!("method='{}' path='{}' uri='{}' status_code='404' user_sub='Not yet decoded' token_id='Not yet decoded' error='No / found'", method_str, path, uri);
             return get_response(
                 StatusCode::NOT_FOUND,
                 NOT_FOUND,
@@ -420,7 +434,7 @@ async fn response(
 
     // to handle CORS pre flights
     if req.method() == Method::OPTIONS {
-        info!("method='{}' uri='{}' status_code='204' user_sub='Not yet decoded' token_id='Not yet decoded'", method_str, path);
+        info!("method='{}' path='{}' uri='{}' status_code='204' user_sub='Not yet decoded' token_id='Not yet decoded'", method_str, path, uri);
         return get_response(
             StatusCode::NO_CONTENT,
             NO_CONTENT,
@@ -433,7 +447,7 @@ async fn response(
     let authorization = match req.headers().get(AUTHORIZATION) {
         None => match get_auth_from_url(req.uri()) {
             None => {
-                warn!("method='{}' uri='{}' status_code='403' user_sub='Not yet decoded' token_id='Not yet decoded' error='No authorization header'", method_str, path);
+                warn!("method='{}' path='{}' uri='{}' status_code='403' user_sub='Not yet decoded' token_id='Not yet decoded' error='No authorization header'", method_str, path, uri);
                 return get_response(
                     StatusCode::FORBIDDEN,
                     FORBIDDEN,
@@ -446,7 +460,7 @@ async fn response(
         },
         Some(authorization) => match authorization.to_str() {
             Err(e) => {
-                warn!("method='{}' uri='{}' status_code='403' user_sub='Not yet decoded' token_id='Not yet decoded' error='{}'", method_str, path, format!("Error in authorization: {:#?}", e));
+                warn!("method='{}' path='{}' uri='{}' status_code='403' user_sub='Not yet decoded' token_id='Not yet decoded' error='{}'", method_str, path, uri, format!("Error in authorization: {:#?}", e));
                 return get_response(
                     StatusCode::FORBIDDEN,
                     FORBIDDEN,
@@ -461,7 +475,7 @@ async fn response(
     let (claims, token_type) = match get_claims(&authorization).await {
         Some(claims) => claims,
         None => {
-            warn!("method='{}' uri='{}' status_code='403' user_sub='Not yet decoded' token_id='Not yet decoded' error='Invalid or no claim'", method_str, path);
+            warn!("method='{}' path='{}' uri='{}' status_code='403' user_sub='Not yet decoded' token_id='Not yet decoded' error='Invalid or no claim'", method_str, path, uri);
             return get_response(
                 StatusCode::FORBIDDEN,
                 FORBIDDEN,
@@ -475,7 +489,7 @@ async fn response(
     let forwarded_uri = match req.uri().path_and_query().map(|x| &x.as_str()[app.len()..]) {
         Some(forwarded_uri) => forwarded_uri,
         None => {
-            warn!("method='{}' uri='{}' status_code='404' user_sub='Not yet decoded' token_id='Not yet decoded' error='Forward api not found'", method_str, path);
+            warn!("method='{}' path='{}' uri='{}' status_code='404' user_sub='Not yet decoded' token_id='Not yet decoded' error='Forward api not found'", method_str, path, uri);
             return get_response(
                 StatusCode::NOT_FOUND,
                 NOT_FOUND,
@@ -490,7 +504,7 @@ async fn response(
 
     match api_lock.read().await.get(app) {
         None => {
-            warn!("method='{}' uri='{}' status_code='404' user_sub='{}' token_id='{}' error='Forward api not found'", method_str, path, claims.sub, claims.token_id);
+            warn!("method='{}' path='{}' uri='{}' status_code='404' user_sub='{}' token_id='{}' error='Forward api not found'", method_str, path, uri, claims.sub, claims.token_id);
             get_response(
                 StatusCode::NOT_FOUND,
                 NOT_FOUND,
@@ -528,7 +542,7 @@ async fn response(
             }
             ApiMode::ForwardStrict(_) => match node.match_path(forwarded_path, method_str) {
                 None => {
-                    warn!("method='{}' uri='{}' status_code='404' user_sub='{}' token_id='{}' error='Endpoint not found in service'", method_str, path, claims.sub, claims.token_id);
+                    warn!("method='{}' path='{}' uri='{}' status_code='404' user_sub='{}' token_id='{}' error='Endpoint not found in service'", method_str, path, uri, claims.sub, claims.token_id);
                     get_response(
                         StatusCode::NOT_FOUND,
                         NOT_FOUND,
