@@ -73,7 +73,7 @@ pub async fn get_perm() -> Result<(
                                 .or_insert_with(HashMap::new)
                                 .entry(app_name.to_string())
                                 .or_insert_with(Vec::new)
-                                .push(role_name.to_string().to_lowercase());
+                                .push(role_name.to_string());
                         }
                     }
                     if perm_hm.contains_key(&perm.role_name) {
