@@ -415,6 +415,18 @@ async fn response(
     let method_str: &str = &req.method().to_string();
     let req_size = req.size_hint();
 
+    // to handle CORS pre flights
+    if req.method() == Method::OPTIONS {
+        info!("method='{}' path='{}' uri='{}' status_code='204' user_sub='Not yet decoded' token_id='Not yet decoded'", method_str, path, uri);
+        return get_response(
+            StatusCode::NO_CONTENT,
+            NO_CONTENT,
+            &["", method_str],
+            &start_time,
+            &req_size,
+        );
+    }
+
     let slash_index = match path[1..].find('/') {
         Some(slash_index) => slash_index + 1,
         None => {
@@ -429,20 +441,8 @@ async fn response(
         }
     };
     let app = &path[..slash_index];
-
     let labels = [app, method_str];
 
-    // to handle CORS pre flights
-    if req.method() == Method::OPTIONS {
-        info!("method='{}' path='{}' uri='{}' status_code='204' user_sub='Not yet decoded' token_id='Not yet decoded'", method_str, path, uri);
-        return get_response(
-            StatusCode::NO_CONTENT,
-            NO_CONTENT,
-            &labels,
-            &start_time,
-            &req_size,
-        );
-    }
 
     let authorization = match req.headers().get(AUTHORIZATION) {
         None => match get_auth_from_url(req.uri()) {
