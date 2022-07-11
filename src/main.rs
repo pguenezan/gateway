@@ -443,7 +443,6 @@ async fn response(
     let app = &path[..slash_index];
     let labels = [app, method_str];
 
-
     let authorization = match req.headers().get(AUTHORIZATION) {
         None => match get_auth_from_url(req.uri()) {
             None => {
