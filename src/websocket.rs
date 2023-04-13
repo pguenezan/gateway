@@ -33,10 +33,7 @@ pub async fn handle_upgrade(
     req_size: &SizeHint,
     ws_uri_string: &str,
 ) -> Result<Response<Body>> {
-    let (response, ws_client) = upgrade(
-        request,
-        Some(RUNTIME_CONFIG.get().unwrap().get_websocket_config()),
-    )?;
+    let (response, ws_client) = upgrade(request, Some(RUNTIME_CONFIG.get_websocket_config()))?;
     let ws_server = create_ws_server(ws_uri_string).await;
     if let Err(error) = ws_server {
         info!("method='Not yet decoded' uri='{}' status_code='502' user_sub='Not yet decoded' token_id='Not yet decoded' error='Websocket: {}'", ws_uri_string, error);
@@ -66,7 +63,7 @@ pub async fn handle_upgrade(
 async fn create_ws_server(ws_uri_string: &str) -> Result<ServerWebSocket> {
     let (ws_server, response) = connect_async_with_config(
         Url::parse(ws_uri_string)?,
-        Some(RUNTIME_CONFIG.get().unwrap().get_websocket_config()),
+        Some(RUNTIME_CONFIG.get_websocket_config()),
     )
     .await?;
     match response.status() {

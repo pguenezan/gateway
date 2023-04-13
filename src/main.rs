@@ -38,10 +38,10 @@ mod route;
 use route::Node;
 
 mod auth;
-use auth::{get_claims, init_token_sources, Claims};
+use auth::{get_claims, Claims};
 
 mod runtime_config;
-use runtime_config::{init_runtime_config, RUNTIME_CONFIG};
+use runtime_config::RUNTIME_CONFIG;
 
 mod permission;
 use permission::{get_perm, has_perm, update_perm};
@@ -128,11 +128,7 @@ fn get_response(
 const LABEL_NAMES: [&str; 3] = ["app", "method", "status_code"];
 
 fn get_metric_name(name: &str) -> String {
-    format!(
-        "gateway_{}_http_{}",
-        RUNTIME_CONFIG.get().unwrap().metrics_prefix,
-        name
-    )
+    format!("gateway_{}_http_{}", RUNTIME_CONFIG.metrics_prefix, name)
 }
 
 static HTTP_COUNTER: Lazy<CounterVec> = Lazy::new(|| {
@@ -595,13 +591,8 @@ async fn response(
 #[tokio::main]
 async fn main() -> Result<()> {
     env_logger::init();
-    if let Err(e) = init_runtime_config() {
-        error!("event='Runtime config is not valid: {}'", e);
-        exit(1);
-    };
-    init_token_sources();
 
-    let addr: SocketAddr = match RUNTIME_CONFIG.get().unwrap().bind_to.parse() {
+    let addr: SocketAddr = match RUNTIME_CONFIG.bind_to.parse() {
         Ok(addr) => addr,
         Err(_) => {
             error!("event='Address bind_to is not valid'");
@@ -617,10 +608,7 @@ async fn main() -> Result<()> {
 
     // apidefinitions fetching
     let api_lock = Arc::new(RwLock::new(HashMap::new()));
-    let update_api = update_api(
-        api_lock.clone(),
-        RUNTIME_CONFIG.get().unwrap().crd_label.to_owned(),
-    );
+    let update_api = update_api(api_lock.clone(), RUNTIME_CONFIG.crd_label.to_owned());
 
     // Share a `Client` with all `Service`s
     let client = Client::new();

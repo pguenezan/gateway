@@ -59,7 +59,7 @@ pub async fn get_perm() -> Result<(
     let is_role_perm = Regex::new("([^:]+)::roles::(.*)").unwrap();
     let mut user_role = HashMap::new();
 
-    for perm_uri in RUNTIME_CONFIG.get().unwrap().perm_uris.iter().as_ref() {
+    for perm_uri in RUNTIME_CONFIG.perm_uris.iter().as_ref() {
         match fetch_perm(perm_uri).await {
             Some(perm_vec) => {
                 for perm in perm_vec.iter() {
@@ -114,10 +114,10 @@ pub async fn update_perm(
     role_lock: Arc<RwLock<HashMap<String, HashMap<String, String>>>>,
 ) -> Result<()> {
     let mut error_count = 0;
-    let max_fetch_error_count = RUNTIME_CONFIG.get().unwrap().max_fetch_error_count;
+    let max_fetch_error_count = RUNTIME_CONFIG.max_fetch_error_count;
 
     loop {
-        sleep(Duration::from_millis(RUNTIME_CONFIG.get().unwrap().perm_update_delay) * 1000).await;
+        sleep(Duration::from_millis(RUNTIME_CONFIG.perm_update_delay) * 1000).await;
         let perm_update = get_perm().await;
         if perm_update.is_err() {
             error_count += 1;
