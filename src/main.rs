@@ -15,41 +15,33 @@ use hyper::header::{
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Client, HeaderMap, Method, Request, Response, Server, StatusCode, Uri};
 use hyper_tungstenite::is_upgrade_request;
-use once_cell::sync::Lazy;
+use prometheus::{Encoder, TextEncoder};
 use std::sync::Arc;
 use tokio::sync::RwLock;
-
-use prometheus::{
-    exponential_buckets, opts, register_counter_vec, register_histogram_vec, CounterVec, Encoder,
-    HistogramVec, TextEncoder,
-};
 use url::Url;
+
+mod api;
+mod auth;
+mod endpoint;
+mod fetch_crd;
+mod metrics;
+mod permission;
+mod route;
+mod runtime_config;
+mod websocket;
+
+use crate::api::{ApiDefinition, ApiMode};
+use crate::auth::{get_claims, Claims};
+use crate::endpoint::Endpoint;
+use crate::fetch_crd::update_api;
+use crate::metrics::commit_http_metrics;
+use crate::permission::{get_perm, has_perm, update_perm};
+use crate::route::Node;
+use crate::runtime_config::RUNTIME_CONFIG;
+use crate::websocket::handle_upgrade;
 
 #[macro_use]
 extern crate log;
-
-mod api;
-use api::{ApiDefinition, ApiMode};
-
-mod endpoint;
-mod websocket;
-
-mod route;
-use route::Node;
-
-mod auth;
-use auth::{get_claims, Claims};
-
-mod runtime_config;
-use runtime_config::RUNTIME_CONFIG;
-
-mod permission;
-use permission::{get_perm, has_perm, update_perm};
-
-mod fetch_crd;
-use crate::endpoint::Endpoint;
-use crate::websocket::handle_upgrade;
-use fetch_crd::update_api;
 
 type GenericError = Box<dyn std::error::Error + Send + Sync>;
 type Result<T> = std::result::Result<T, GenericError>;
@@ -59,41 +51,6 @@ static NOT_FOUND: &[u8] = b"Not Found";
 static FORBIDDEN: &[u8] = b"Forbidden";
 static BAD_GATEWAY: &[u8] = b"Bad Gateway";
 static NO_CONTENT: &[u8] = b"";
-
-#[inline(always)]
-fn commit_metrics(
-    labels: &[&str],
-    start_time: &Instant,
-    status_code: StatusCode,
-    req_size: &SizeHint,
-    res_size: &SizeHint,
-) {
-    let full_labels = vec![labels[0], labels[1], status_code.as_str()];
-
-    HTTP_COUNTER.with_label_values(&full_labels).inc();
-
-    HTTP_REQ_LAT_HISTOGRAM
-        .with_label_values(&full_labels)
-        .observe(start_time.elapsed().as_secs_f64());
-
-    HTTP_REQ_SIZE_HISTOGRAM_LOW
-        .with_label_values(&full_labels)
-        .observe(req_size.lower() as f64);
-    if let Some(size) = req_size.upper() {
-        HTTP_REQ_SIZE_HISTOGRAM_HIGH
-            .with_label_values(&full_labels)
-            .observe(size as f64)
-    }
-
-    HTTP_RES_SIZE_HISTOGRAM_LOW
-        .with_label_values(&full_labels)
-        .observe(res_size.lower() as f64);
-    if let Some(size) = req_size.upper() {
-        HTTP_RES_SIZE_HISTOGRAM_HIGH
-            .with_label_values(&full_labels)
-            .observe(size as f64)
-    }
-}
 
 #[inline(always)]
 fn get_response(
@@ -112,7 +69,7 @@ fn get_response(
         .header(ACCESS_CONTROL_MAX_AGE, 86400)
         .body(content.into())?;
 
-    commit_metrics(
+    commit_http_metrics(
         labels,
         start_time,
         status_code,
@@ -124,72 +81,6 @@ fn get_response(
 
     Ok(response)
 }
-
-const LABEL_NAMES: [&str; 3] = ["app", "method", "status_code"];
-
-fn get_metric_name(name: &str) -> String {
-    format!("gateway_{}_http_{}", RUNTIME_CONFIG.metrics_prefix, name)
-}
-
-static HTTP_COUNTER: Lazy<CounterVec> = Lazy::new(|| {
-    register_counter_vec!(
-        opts!(
-            get_metric_name("requests_total"),
-            "Number of HTTP requests made."
-        ),
-        &LABEL_NAMES
-    )
-    .unwrap()
-});
-
-static HTTP_REQ_LAT_HISTOGRAM: Lazy<HistogramVec> = Lazy::new(|| {
-    register_histogram_vec!(
-        get_metric_name("request_duration_seconds"),
-        "The HTTP request latencies in seconds.",
-        &LABEL_NAMES
-    )
-    .unwrap()
-});
-
-static HTTP_REQ_SIZE_HISTOGRAM_LOW: Lazy<HistogramVec> = Lazy::new(|| {
-    register_histogram_vec!(
-        get_metric_name("request_size_low_bytes"),
-        "The HTTP request size in bytes (lower bound).",
-        &LABEL_NAMES,
-        exponential_buckets(1.0, 2.0, 35).unwrap()
-    )
-    .unwrap()
-});
-
-static HTTP_REQ_SIZE_HISTOGRAM_HIGH: Lazy<HistogramVec> = Lazy::new(|| {
-    register_histogram_vec!(
-        get_metric_name("request_size_high_bytes"),
-        "The HTTP request size in bytes (upper bound).",
-        &LABEL_NAMES,
-        exponential_buckets(1.0, 2.0, 35).unwrap()
-    )
-    .unwrap()
-});
-
-static HTTP_RES_SIZE_HISTOGRAM_LOW: Lazy<HistogramVec> = Lazy::new(|| {
-    register_histogram_vec!(
-        get_metric_name("response_size_low_bytes"),
-        "The HTTP response size in bytes (lower bound).",
-        &LABEL_NAMES,
-        exponential_buckets(1.0, 2.0, 35).unwrap()
-    )
-    .unwrap()
-});
-
-static HTTP_RES_SIZE_HISTOGRAM_HIGH: Lazy<HistogramVec> = Lazy::new(|| {
-    register_histogram_vec!(
-        get_metric_name("response_size_high_bytes"),
-        "The HTTP response size in bytes (upper bound).",
-        &LABEL_NAMES,
-        exponential_buckets(1.0, 2.0, 35).unwrap()
-    )
-    .unwrap()
-});
 
 fn inject_cors(headers: &mut HeaderMap<HeaderValue>) {
     headers.insert(ACCESS_CONTROL_ALLOW_ORIGIN, "*".parse().unwrap());
@@ -346,7 +237,7 @@ async fn call(
             match client.request(req).await {
                 Ok(mut response) => {
                     inject_cors(response.headers_mut());
-                    commit_metrics(
+                    commit_http_metrics(
                         labels,
                         start_time,
                         response.status(),
