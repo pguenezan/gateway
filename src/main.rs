@@ -3,6 +3,7 @@ use std::net::SocketAddr;
 use std::process::exit;
 use std::time::Instant;
 
+use anyhow::anyhow;
 use http_body::SizeHint;
 use hyper::body::HttpBody;
 use hyper::client::HttpConnector;
@@ -14,12 +15,9 @@ use hyper::header::{
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Client, HeaderMap, Method, Request, Response, Server, StatusCode, Uri};
 use hyper_tungstenite::is_upgrade_request;
+use once_cell::sync::Lazy;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-
-use lazy_static::lazy_static;
-
-use anyhow::anyhow;
 
 use prometheus::{
     exponential_buckets, opts, register_counter_vec, register_histogram_vec, CounterVec, Encoder,
@@ -137,50 +135,65 @@ fn get_metric_name(name: &str) -> String {
     )
 }
 
-lazy_static! {
-    static ref HTTP_COUNTER: CounterVec = register_counter_vec!(
+static HTTP_COUNTER: Lazy<CounterVec> = Lazy::new(|| {
+    register_counter_vec!(
         opts!(
             get_metric_name("requests_total"),
             "Number of HTTP requests made."
         ),
         &LABEL_NAMES
     )
-    .unwrap();
-    static ref HTTP_REQ_LAT_HISTOGRAM: HistogramVec = register_histogram_vec!(
+    .unwrap()
+});
+
+static HTTP_REQ_LAT_HISTOGRAM: Lazy<HistogramVec> = Lazy::new(|| {
+    register_histogram_vec!(
         get_metric_name("request_duration_seconds"),
         "The HTTP request latencies in seconds.",
         &LABEL_NAMES
     )
-    .unwrap();
-    static ref HTTP_REQ_SIZE_HISTOGRAM_LOW: HistogramVec = register_histogram_vec!(
+    .unwrap()
+});
+
+static HTTP_REQ_SIZE_HISTOGRAM_LOW: Lazy<HistogramVec> = Lazy::new(|| {
+    register_histogram_vec!(
         get_metric_name("request_size_low_bytes"),
         "The HTTP request size in bytes (lower bound).",
         &LABEL_NAMES,
         exponential_buckets(1.0, 2.0, 35).unwrap()
     )
-    .unwrap();
-    static ref HTTP_REQ_SIZE_HISTOGRAM_HIGH: HistogramVec = register_histogram_vec!(
+    .unwrap()
+});
+
+static HTTP_REQ_SIZE_HISTOGRAM_HIGH: Lazy<HistogramVec> = Lazy::new(|| {
+    register_histogram_vec!(
         get_metric_name("request_size_high_bytes"),
         "The HTTP request size in bytes (upper bound).",
         &LABEL_NAMES,
         exponential_buckets(1.0, 2.0, 35).unwrap()
     )
-    .unwrap();
-    static ref HTTP_RES_SIZE_HISTOGRAM_LOW: HistogramVec = register_histogram_vec!(
+    .unwrap()
+});
+
+static HTTP_RES_SIZE_HISTOGRAM_LOW: Lazy<HistogramVec> = Lazy::new(|| {
+    register_histogram_vec!(
         get_metric_name("response_size_low_bytes"),
         "The HTTP response size in bytes (lower bound).",
         &LABEL_NAMES,
         exponential_buckets(1.0, 2.0, 35).unwrap()
     )
-    .unwrap();
-    static ref HTTP_RES_SIZE_HISTOGRAM_HIGH: HistogramVec = register_histogram_vec!(
+    .unwrap()
+});
+
+static HTTP_RES_SIZE_HISTOGRAM_HIGH: Lazy<HistogramVec> = Lazy::new(|| {
+    register_histogram_vec!(
         get_metric_name("response_size_high_bytes"),
         "The HTTP response size in bytes (upper bound).",
         &LABEL_NAMES,
         exponential_buckets(1.0, 2.0, 35).unwrap()
     )
-    .unwrap();
-}
+    .unwrap()
+});
 
 fn inject_cors(headers: &mut HeaderMap<HeaderValue>) {
     headers.insert(ACCESS_CONTROL_ALLOW_ORIGIN, "*".parse().unwrap());

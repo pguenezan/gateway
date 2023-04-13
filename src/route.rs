@@ -1,14 +1,12 @@
 use std::collections::HashMap;
 
-use lazy_static::lazy_static;
+use once_cell::sync::Lazy;
 use regex::Regex;
 
 use crate::api::{ApiDefinition, ApiMode};
 use crate::endpoint::Endpoint;
 
-lazy_static! {
-    static ref IS_PARAM: Regex = Regex::new("\\{[^/]*\\}").unwrap();
-}
+static IS_PARAM: Lazy<Regex> = Lazy::new(|| Regex::new("\\{[^/]*\\}").unwrap());
 
 #[derive(Debug)]
 pub struct Node {
