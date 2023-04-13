@@ -2,11 +2,13 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
-use kube::api::{Api, DynamicObject, ListParams};
+use kube::api::{Api, DynamicObject};
 use kube::{discovery, Client};
 
 use futures::{StreamExt, TryStreamExt};
-use kube_runtime::{utils::try_flatten_applied, watcher};
+use kube_runtime::utils::WatchStreamExt;
+use kube_runtime::watcher;
+use kube_runtime::watcher::Config;
 
 use anyhow::{bail, Result};
 
@@ -36,10 +38,11 @@ pub async fn update_api(
 
     // Use the discovered kind in an Api with the ApiResource as its DynamicType
     let apidefinitions = Api::<DynamicObject>::all_with(client, &ar);
-    let lp = ListParams::default().labels(&label_filter);
+    let lp = Config::default().labels(&label_filter);
     let watcher = watcher(apidefinitions, lp);
 
-    let mut apply_apidefinitions = try_flatten_applied(watcher).boxed_local();
+    let mut apply_apidefinitions = watcher.applied_objects().boxed();
+
     loop {
         match apply_apidefinitions.try_next().await {
             Err(e) => {
