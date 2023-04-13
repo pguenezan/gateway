@@ -25,6 +25,6 @@ k8s-openapi = { version = "0.18", default-features = false, features = ["v1_21"]
 url = "2.2.2"
 schemars = "0.8.8"
 futures = "0.3.21"
-hyper-tungstenite = "0.5.0"
-tokio-tungstenite = "0.16.1"
+hyper-tungstenite = "0.9"
+tokio-tungstenite = "0.18"
 anyhow = "1.0.53"
