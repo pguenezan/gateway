@@ -1,6 +1,7 @@
 use std::time::Instant;
 
 use http_body::SizeHint;
+use hyper::Method;
 use hyper::StatusCode;
 use once_cell::sync::Lazy;
 use prometheus::{
@@ -33,13 +34,15 @@ impl std::fmt::Display for Protocol {
 /// Update HTTP metrics with a newly processed request.
 #[inline(always)]
 pub(crate) fn commit_http_metrics(
-    labels: &[&str],
+    app: &str,
+    method: &Method,
     start_time: &Instant,
     status_code: StatusCode,
     req_size: &SizeHint,
     res_size: &SizeHint,
 ) {
-    let full_labels = vec![labels[0], labels[1], status_code.as_str()];
+    let method_str = method.as_str();
+    let full_labels = vec![app, method_str, status_code.as_str()];
     HTTP_COUNTER.with_label_values(&full_labels).inc();
 
     HTTP_REQ_LAT_HISTOGRAM

@@ -28,39 +28,43 @@ type RxServerStream = SplitStream<ServerWebSocket>;
 type RxClientStream = SplitStream<WebSocketStream<Upgraded>>;
 
 pub async fn handle_upgrade(
+    app: &str,
     request: Request<Body>,
-    labels: &[&str],
     start_time: &Instant,
     req_size: &SizeHint,
     ws_uri_string: &str,
 ) -> Result<Response<Body>> {
-    let app = labels[0].to_string(); // TODO: erk
+    let app = app.to_string();
+    let method = request.method().clone();
     let (response, ws_client) = upgrade(request, Some(RUNTIME_CONFIG.get_websocket_config()))?;
     let ws_server = create_ws_server(ws_uri_string).await;
 
     if let Err(error) = ws_server {
         info!("method='Not yet decoded' uri='{}' status_code='502' user_sub='Not yet decoded' token_id='Not yet decoded' error='Websocket: {}'", ws_uri_string, error);
         return get_response(
+            &app,
+            &method,
             StatusCode::BAD_GATEWAY,
             BAD_GATEWAY,
-            labels,
             start_time,
             req_size,
         );
     }
-    spawn(async move {
-        if let Err(e) = serve_websocket(&app, ws_client, ws_server.unwrap()).await {
-            warn!("event='Error in websocket connection: {:?}'", e);
-        }
-    });
 
     commit_http_metrics(
-        labels,
+        &app,
+        &method,
         start_time,
         response.status(),
         req_size,
         &response.size_hint(),
     );
+
+    spawn(async move {
+        if let Err(e) = serve_websocket(&app, ws_client, ws_server.unwrap()).await {
+            warn!("event='Error in websocket connection: {:?}'", e);
+        }
+    });
 
     Ok(response)
 }
