@@ -78,7 +78,7 @@ pub(crate) struct SocketMetricsGuard<'a> {
 
 impl<'a> SocketMetricsGuard<'a> {
     pub(crate) fn new(app: &'a str) -> Self {
-        SOCKET_CONNECTED_HISTOGRAM.with_label_values(&[app]).inc();
+        SOCKET_CONNECTED_GAUGE.with_label_values(&[app]).inc();
         Self { app }
     }
 
@@ -105,9 +105,7 @@ impl<'a> SocketMetricsGuard<'a> {
 
 impl<'a> Drop for SocketMetricsGuard<'a> {
     fn drop(&mut self) {
-        SOCKET_CONNECTED_HISTOGRAM
-            .with_label_values(&[self.app])
-            .dec();
+        SOCKET_CONNECTED_GAUGE.with_label_values(&[self.app]).dec();
     }
 }
 
@@ -178,7 +176,7 @@ static HTTP_RES_SIZE_HISTOGRAM_HIGH: Lazy<HistogramVec> = Lazy::new(|| {
     .unwrap()
 });
 
-static SOCKET_CONNECTED_HISTOGRAM: Lazy<GaugeVec> = Lazy::new(|| {
+static SOCKET_CONNECTED_GAUGE: Lazy<GaugeVec> = Lazy::new(|| {
     register_gauge_vec!(
         get_metric_name("clients", Protocol::Socket),
         "Number simultaneously open sockets",
