@@ -1,16 +1,12 @@
 use std::str::FromStr;
 
-use lazy_static::lazy_static;
-
-use schemars::JsonSchema;
-
 use hyper::Method;
+use once_cell::sync::Lazy;
 use regex::Regex;
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-lazy_static! {
-    static ref PATH_TO_PERM: Regex = Regex::new("\\{[^/]*\\}").unwrap();
-}
+static PATH_TO_PERM: Lazy<Regex> = Lazy::new(|| Regex::new("\\{[^/]*\\}").unwrap());
 
 #[derive(Serialize, Deserialize, Debug, Clone, JsonSchema)]
 pub struct Endpoint {

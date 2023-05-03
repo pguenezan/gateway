@@ -1,4 +1,4 @@
-FROM rust:1.58.1 as builder
+FROM rust:1.68.2 as builder
 WORKDIR /usr/src
 
 RUN apt-get update && \
@@ -11,7 +11,7 @@ COPY src ./src
 RUN cargo install --path .
 
 
-FROM debian:buster-20220125-slim
+FROM debian:bullseye-20230502-slim
 RUN apt-get -y update && \
     apt-get -y install libssl-dev && \
     apt-get clean autoclean && \
