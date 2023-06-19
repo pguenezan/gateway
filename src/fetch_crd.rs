@@ -60,13 +60,11 @@ pub async fn update_api(
                         e
                     );
                     error!("event='{}'", err_msg);
-                    bail!(err_msg);
                 }
                 Ok(apidefinition) => match apidefinition.check_fields() {
                     Err(e) => {
                         let err_msg = format!("Invalid apidefinition: {}", e);
                         error!("event='{}'", err_msg);
-                        bail!(err_msg);
                     }
                     Ok(_) => {
                         let node = Node::new(&apidefinition);
