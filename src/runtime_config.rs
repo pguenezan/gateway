@@ -5,11 +5,9 @@ use std::io::BufReader;
 use std::path::Path;
 use std::process::exit;
 
-use serde::Deserialize;
-
-use once_cell::sync::OnceCell;
-
 use hyper::http::Uri;
+use once_cell::sync::Lazy;
+use serde::Deserialize;
 use tokio_tungstenite::tungstenite::protocol::WebSocketConfig;
 
 #[derive(Debug, Deserialize)]
@@ -49,17 +47,9 @@ pub struct RuntimeConfig {
 
 type Result<T> = std::result::Result<T, Box<dyn error::Error>>;
 
-pub static RUNTIME_CONFIG: OnceCell<RuntimeConfig> = OnceCell::new();
-
-fn get_runtime_config<P: AsRef<Path>>(path: P) -> Result<RuntimeConfig> {
-    let file = File::open(path)?;
-    let reader = BufReader::new(file);
-    let runtime_config = serde_yaml::from_reader(reader)?;
-    Ok(runtime_config)
-}
-
-pub fn init_runtime_config() -> Result<()> {
+pub static RUNTIME_CONFIG: Lazy<RuntimeConfig> = Lazy::new(|| {
     let args: Vec<String> = env::args().collect();
+
     if args.len() != 2 {
         error!(
             "event='usage: {} runtime_config.yaml'",
@@ -67,9 +57,23 @@ pub fn init_runtime_config() -> Result<()> {
         );
         exit(1);
     }
+
     let path = Path::new(args.get(1).unwrap());
-    RUNTIME_CONFIG.set(get_runtime_config(path)?).unwrap();
-    Ok(())
+
+    match get_runtime_config(path) {
+        Ok(x) => x,
+        Err(e) => {
+            error!("event='Runtime config is not valid: {e}'");
+            exit(1);
+        }
+    }
+});
+
+fn get_runtime_config<P: AsRef<Path>>(path: P) -> Result<RuntimeConfig> {
+    let file = File::open(path)?;
+    let reader = BufReader::new(file);
+    let runtime_config = serde_yaml::from_reader(reader)?;
+    Ok(runtime_config)
 }
 
 impl RuntimeConfig {

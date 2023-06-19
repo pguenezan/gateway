@@ -1,10 +1,8 @@
 use std::collections::HashSet;
-use std::process::exit;
 
 use jsonwebtoken::{decode, Algorithm, DecodingKey, Validation};
+use once_cell::sync::Lazy;
 use serde::Deserialize;
-
-use once_cell::sync::OnceCell;
 
 use crate::runtime_config::{AuthSource, RUNTIME_CONFIG};
 
@@ -54,23 +52,15 @@ impl TokenSource {
     }
 }
 
-static TOKEN_SOURCES: OnceCell<Vec<TokenSource>> = OnceCell::new();
-
-const AUTH_SHIFT: usize = "Bearer ".len();
-
-pub fn init_token_sources() {
-    let token_sources = RUNTIME_CONFIG
-        .get()
-        .unwrap()
+static TOKEN_SOURCES: Lazy<Vec<TokenSource>> = Lazy::new(|| {
+    RUNTIME_CONFIG
         .auth_sources
         .iter()
         .map(TokenSource::new)
-        .collect();
-    if TOKEN_SOURCES.set(token_sources).is_err() {
-        error!("event='Fail to set TOKEN_SOURCES'");
-        exit(1);
-    }
-}
+        .collect()
+});
+
+const AUTH_SHIFT: usize = "Bearer ".len();
 
 pub async fn get_claims(authorization: &str) -> Option<(Claims, String)> {
     if authorization.len() <= AUTH_SHIFT {
@@ -78,7 +68,7 @@ pub async fn get_claims(authorization: &str) -> Option<(Claims, String)> {
         return None;
     }
     let mut errors = Vec::new();
-    for token_source in TOKEN_SOURCES.get().unwrap().iter().as_ref() {
+    for token_source in TOKEN_SOURCES.iter().as_ref() {
         match decode::<Claims>(
             &authorization[AUTH_SHIFT..],
             &token_source.public_key,
