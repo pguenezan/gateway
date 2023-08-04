@@ -215,7 +215,7 @@ static SOCKET_MESSAGE_SENT_SIZE_HISTOGRAM: Lazy<HistogramVec> = Lazy::new(|| {
 
 static SOCKET_MESSAGE_RECV_SIZE_HISTOGRAM: Lazy<HistogramVec> = Lazy::new(|| {
     register_histogram_vec!(
-        get_metric_name("message_received", Protocol::Socket),
+        get_metric_name("message_received_size", Protocol::Socket),
         "Size of messages received by server through sockets in bytes",
         &SOCKET_LABEL_NAMES,
         exponential_buckets(1.0, 2.0, 35).unwrap()
