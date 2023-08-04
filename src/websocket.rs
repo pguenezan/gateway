@@ -110,7 +110,7 @@ async fn serve_websocket(
                         return Err(e);
                     }
                     Ok(message) => {
-                        socket_metrics.commit_message_received();
+                        socket_metrics.commit_message_received(message.len());
 
                         if let Err(e) = tx_server.send(message).await {
                             warn!("event='Fail to send message to server: {:?}'", e);
@@ -139,7 +139,7 @@ async fn serve_websocket(
                         return Err(e);
                     }
                     Ok(message) => {
-                        socket_metrics.commit_message_sent();
+                        socket_metrics.commit_message_sent(message.len());
 
                         if let Err(e) = tx_client.send(message).await {
                             warn!("event='Fail to send message to server: {:?}'", e);
