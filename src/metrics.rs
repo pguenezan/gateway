@@ -82,24 +82,16 @@ impl<'a> SocketMetricsGuard<'a> {
         Self { app }
     }
 
-    pub(crate) fn commit_message_sent(&self, size: usize) {
+    pub(crate) fn commit_message_sent(&self) {
         SOCKET_MESSAGE_SENT_COUNTER
             .with_label_values(&[self.app])
             .inc();
-
-        SOCKET_MESSAGE_SENT_SIZE_HISTOGRAM
-            .with_label_values(&[self.app])
-            .observe(size as f64)
     }
 
-    pub(crate) fn commit_message_received(&self, size: usize) {
+    pub(crate) fn commit_message_received(&self) {
         SOCKET_MESSAGE_RECV_COUNTER
             .with_label_values(&[self.app])
             .inc();
-
-        SOCKET_MESSAGE_RECV_SIZE_HISTOGRAM
-            .with_label_values(&[self.app])
-            .observe(size as f64)
     }
 }
 
@@ -199,26 +191,6 @@ static SOCKET_MESSAGE_RECV_COUNTER: Lazy<CounterVec> = Lazy::new(|| {
         get_metric_name("message_received", Protocol::Socket),
         "Total number of messages received by server through sockets",
         &SOCKET_LABEL_NAMES,
-    )
-    .unwrap()
-});
-
-static SOCKET_MESSAGE_SENT_SIZE_HISTOGRAM: Lazy<HistogramVec> = Lazy::new(|| {
-    register_histogram_vec!(
-        get_metric_name("message_sent_size", Protocol::Socket),
-        "Size of messages sent from server through sockets in bytes",
-        &SOCKET_LABEL_NAMES,
-        exponential_buckets(1.0, 2.0, 35).unwrap()
-    )
-    .unwrap()
-});
-
-static SOCKET_MESSAGE_RECV_SIZE_HISTOGRAM: Lazy<HistogramVec> = Lazy::new(|| {
-    register_histogram_vec!(
-        get_metric_name("message_received", Protocol::Socket),
-        "Size of messages received by server through sockets in bytes",
-        &SOCKET_LABEL_NAMES,
-        exponential_buckets(1.0, 2.0, 35).unwrap()
     )
     .unwrap()
 });
