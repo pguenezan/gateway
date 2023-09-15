@@ -1,15 +1,30 @@
-apiVersion: gateway.dgexsol.fr/v1
-kind: ApiDefinition
-metadata:
-  name: test-api
-  labels:
-    gateway/target: test
-spec:
-  app_name: /test
-  host: test-api:8000
-  mode:
-    kind: forward_strict
-    endpoints:
-      - method: GET
-        path: /ping/
-  forward_path: /test-api
+- apiVersion: gateway.dgexsol.fr/v1
+  kind: ApiDefinition
+  metadata:
+    name: test-api
+    labels:
+      gateway/target: test
+  spec:
+    app_name: /test
+    host: test-api:8000
+    mode:
+      kind: forward_strict
+      endpoints:
+        - method: GET
+          path: /ping/
+    forward_path: /test-api
+- apiVersion: gateway.dgexsol.fr/v1
+  kind: ApiDefinition
+  metadata:
+    name: test-api-two
+    labels:
+      gateway/target: test
+  spec:
+    app_name: /test-two
+    host: test-api-two:8000
+    mode:
+      kind: forward_strict
+      endpoints:
+        - method: GET
+          path: /pong/
+    forward_path: /test

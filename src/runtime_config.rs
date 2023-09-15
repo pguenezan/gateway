@@ -36,6 +36,7 @@ struct WebSocketConfigInternal {
 #[derive(Debug, Deserialize)]
 pub struct RuntimeConfig {
     pub bind_to: String,
+    pub apidefinition_path: String,
     pub crd_label: String,
     pub metrics_prefix: String,
     pub perm_uris: Vec<PermUri>,
