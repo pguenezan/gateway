@@ -7,6 +7,51 @@ spec:
   versions:
     - name: v1
       served: true
+      storage: false
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              properties:
+                app_name:
+                  type: string
+                host:
+                  type: string
+                mode:
+                  type: object
+                  properties:
+                    kind:
+                      type: string
+                      enum:
+                        - forward_strict
+                        - forward_all
+                    endpoints:
+                      type: array
+                      items:
+                        type: object
+                        properties:
+                          method:
+                            type: string
+                            enum:
+                              - GET
+                              - HEAD
+                              - POST
+                              - PUT
+                              - DELETE
+                              - CONNECT
+                              - TRACE
+                              - PATCH
+                          path:
+                            type: string
+                          is_websocket:
+                            type: boolean
+                            default: false
+                forward_path:
+                  type: string
+    - name: v2
+      served: true
       storage: true
       schema:
         openAPIV3Schema:
@@ -48,6 +93,9 @@ spec:
                           is_websocket:
                             type: boolean
                             default: false
+                          check_permission:
+                            type: boolean
+                            default: true
                 forward_path:
                   type: string
   scope: Namespaced

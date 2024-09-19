@@ -29,7 +29,7 @@ pub async fn update_api(
         }
     };
     let group = "gateway.dgexsol.fr";
-    let version = "v1";
+    let version = "v2";
     let kind = "ApiDefinition";
 
     let gvk = GroupVersionKind::gvk(group, version, kind);

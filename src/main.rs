@@ -176,114 +176,111 @@ async fn call(
     token_type: &str,
 ) -> Result<Response<Body>> {
     let path = &req.uri().path().to_owned();
-    match has_perm(perm_lock, &endpoint.permission, &claims.token_id).await {
-        false => {
-            info!(
-                "method='{}' path='{}' uri='{}' status_code='403' user_sub='{}' token_id='{}' error='Does not have the permission' perm='{}'",
+    if endpoint.check_permission && !has_perm(perm_lock, &endpoint.permission, &claims.token_id).await {
+        info!(
+            "method='{}' path='{}' uri='{}' status_code='403' user_sub='{}' token_id='{}' error='Does not have the permission' perm='{}'",
+            req.method(),
+            path,
+            http_uri_string,
+            claims.sub,
+            claims.token_id,
+            &endpoint.permission,
+        );
+        return get_response(
+            app,
+            req.method(),
+            StatusCode::FORBIDDEN,
+            FORBIDDEN,
+            start_time,
+            req_size,
+        );
+    }
+
+    if endpoint.is_websocket && is_upgrade_request(&req) {
+        return handle_upgrade(app, req, start_time, req_size, ws_uri_string).await;
+    }
+
+    if endpoint.is_websocket {
+        debug!("event='Websocket require upgrade'");
+
+        return get_response(
+            app,
+            req.method(),
+            StatusCode::UPGRADE_REQUIRED,
+            NO_CONTENT,
+            start_time,
+            req_size,
+        );
+    }
+
+    match http_uri_string.parse() {
+        Ok(uri) => *req.uri_mut() = uri,
+        Err(e) => {
+            error!("error='Uri parsing error: {:?}'", e);
+            return get_response(
+                app,
                 req.method(),
+                StatusCode::NOT_FOUND,
+                NOT_FOUND,
+                start_time,
+                req_size,
+            );
+        }
+    };
+    let role_read = role_lock.read().await;
+    let roles = match role_read.get(&claims.token_id) {
+        None => "",
+        Some(roles) => match roles.get(&api.spec.app_name[1..]) {
+            None => "",
+            Some(roles) => roles,
+        },
+    };
+
+    inject_headers(req.headers_mut(), claims, roles, token_type);
+    let method = req.method().clone();
+
+    match client.request(req).await {
+        Ok(mut response) => {
+            inject_cors(response.headers_mut());
+            commit_http_metrics(
+                app,
+                &method,
+                start_time,
+                response.status(),
+                req_size,
+                &response.size_hint(),
+            );
+            info!(
+                "method='{}' path='{}' uri='{}' status_code='{}' user_sub='{}' token_id='{}' perm='{}'",
+                method,
                 path,
                 http_uri_string,
+                response.status(),
                 claims.sub,
                 claims.token_id,
                 &endpoint.permission,
             );
+            Ok(response)
+        }
+        Err(error) => {
+            warn!(
+                "method='{}' path='{}' uri='{}' status_code='502' user_sub='{}' token_id='{}' error='{:?}' perm='{}'",
+                method,
+                path,
+                http_uri_string,
+                claims.sub,
+                claims.token_id,
+                error,
+                &endpoint.permission
+            );
             get_response(
                 app,
-                req.method(),
-                StatusCode::FORBIDDEN,
-                FORBIDDEN,
+                &method,
+                StatusCode::BAD_GATEWAY,
+                BAD_GATEWAY,
                 start_time,
                 req_size,
             )
-        }
-        true => {
-            if endpoint.is_websocket && is_upgrade_request(&req) {
-                return handle_upgrade(app, req, start_time, req_size, ws_uri_string).await;
-            }
-
-            if endpoint.is_websocket {
-                debug!("event='Websocket require upgrade'");
-
-                return get_response(
-                    app,
-                    req.method(),
-                    StatusCode::UPGRADE_REQUIRED,
-                    NO_CONTENT,
-                    start_time,
-                    req_size,
-                );
-            }
-
-            match http_uri_string.parse() {
-                Ok(uri) => *req.uri_mut() = uri,
-                Err(e) => {
-                    error!("error='Uri parsing error: {:?}'", e);
-                    return get_response(
-                        app,
-                        req.method(),
-                        StatusCode::NOT_FOUND,
-                        NOT_FOUND,
-                        start_time,
-                        req_size,
-                    );
-                }
-            };
-            let role_read = role_lock.read().await;
-            let roles = match role_read.get(&claims.token_id) {
-                None => "",
-                Some(roles) => match roles.get(&api.spec.app_name[1..]) {
-                    None => "",
-                    Some(roles) => roles,
-                },
-            };
-
-            inject_headers(req.headers_mut(), claims, roles, token_type);
-            let method = req.method().clone();
-
-            match client.request(req).await {
-                Ok(mut response) => {
-                    inject_cors(response.headers_mut());
-                    commit_http_metrics(
-                        app,
-                        &method,
-                        start_time,
-                        response.status(),
-                        req_size,
-                        &response.size_hint(),
-                    );
-                    info!(
-                        "method='{}' path='{}' uri='{}' status_code='{}' user_sub='{}' token_id='{}' perm='{}'",
-                        method,
-                        path,
-                        http_uri_string,
-                        response.status(),
-                        claims.sub,
-                        claims.token_id,
-                        &endpoint.permission,
-                    );
-                    Ok(response)
-                }
-                Err(error) => {
-                    warn!(
-                        "method='{}' path='{}' uri='{}' status_code='502' user_sub='{}' token_id='{}' error='{:?}' perm='{}'",
-                        method,
-                        path,
-                        http_uri_string,
-                        claims.sub,
-                        claims.token_id,
-                        error,
-                        &endpoint.permission
-                    );
-                    get_response(
-                        app,
-                        &method,
-                        StatusCode::BAD_GATEWAY,
-                        BAD_GATEWAY,
-                        start_time,
-                        req_size,
-                    )
-                }
-            }
         }
     }
 }

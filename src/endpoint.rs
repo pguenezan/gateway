@@ -16,9 +16,15 @@ pub struct Endpoint {
     pub is_websocket: bool,
     #[serde(skip)]
     pub permission: String,
+    #[serde(default = "check_permission_default")]
+    pub check_permission: bool,
 }
 
 fn is_websocket_default() -> bool {
+    false
+}
+
+fn check_permission_default() -> bool {
     false
 }
 
@@ -29,6 +35,7 @@ impl Endpoint {
             path,
             method,
             is_websocket: false,
+            check_permission: true,
         }
     }
     pub(crate) fn check_fields(&self) -> Result<(), String> {
