@@ -1,12 +1,12 @@
 use std::collections::HashMap;
+use std::sync::LazyLock;
 
-use once_cell::sync::Lazy;
 use regex::Regex;
 
 use crate::api::{ApiDefinition, ApiMode};
 use crate::endpoint::Endpoint;
 
-static IS_PARAM: Lazy<Regex> = Lazy::new(|| Regex::new("\\{[^/]*\\}").unwrap());
+static IS_PARAM: LazyLock<Regex> = LazyLock::new(|| Regex::new("\\{[^/]*\\}").unwrap());
 
 #[derive(Debug)]
 pub struct Node {

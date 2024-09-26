@@ -4,9 +4,9 @@ use std::fs::File;
 use std::io::BufReader;
 use std::path::Path;
 use std::process::exit;
+use std::sync::LazyLock;
 
 use hyper::http::Uri;
-use once_cell::sync::Lazy;
 use serde::Deserialize;
 use tokio_tungstenite::tungstenite::protocol::WebSocketConfig;
 
@@ -48,7 +48,7 @@ pub struct RuntimeConfig {
 
 type Result<T> = std::result::Result<T, Box<dyn error::Error>>;
 
-pub static RUNTIME_CONFIG: Lazy<RuntimeConfig> = Lazy::new(|| {
+pub static RUNTIME_CONFIG: LazyLock<RuntimeConfig> = LazyLock::new(|| {
     let args: Vec<String> = env::args().collect();
 
     if args.len() != 2 {

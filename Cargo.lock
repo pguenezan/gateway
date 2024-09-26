@@ -580,7 +580,6 @@ dependencies = [
  "kube",
  "kube-runtime",
  "log",
- "once_cell",
  "prometheus",
  "regex",
  "schemars",
