@@ -1,12 +1,11 @@
+use anyhow::Result;
+use kube::core::DynamicObject;
+use kube::CustomResource;
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use url::Url;
 
-use kube::CustomResource;
-use schemars::JsonSchema;
-
 use crate::endpoint::Endpoint;
-use anyhow::Result;
-use kube::core::DynamicObject;
 
 #[derive(Deserialize, Serialize, Debug, Clone, JsonSchema)]
 #[serde(rename_all(deserialize = "snake_case"))]
