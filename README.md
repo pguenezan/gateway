@@ -19,8 +19,13 @@ max_fetch_error_count: u64 # max number of consecutive errors when fetching perm
 
 # TODO: arbitrary values
 websocket_config:
+<<<<<<< HEAD
   write_buffer_size: 10_000
   max_write_buffer_size: 10_000
+=======
+  write_buffer_size: 1_000
+  max_write_buffer_size: 1_000
+>>>>>>> 30bad1a (chore: update to hyper 1.x)
   max_message_size: 1_000_000
   max_frame_size: 1_000_000
   accept_unmasked_frames: true
