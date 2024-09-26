@@ -1,6 +1,6 @@
 use std::time::Instant;
 
-use anyhow::{bail, Result};
+use anyhow::{anyhow, bail, Result};
 use bytes::Bytes;
 use futures::stream::{SplitSink, SplitStream};
 use futures::{pin_mut, SinkExt, StreamExt};
@@ -16,7 +16,6 @@ use tokio::{spawn, try_join};
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::MaybeTlsStream;
 use tokio_tungstenite::{connect_async_with_config, WebSocketStream};
-use url::Url;
 
 use crate::metrics::{commit_http_metrics, SocketMetricsGuard};
 use crate::{get_response, BAD_GATEWAY, RUNTIME_CONFIG};
@@ -36,20 +35,26 @@ pub async fn handle_upgrade(
 ) -> Result<Response<Full<Bytes>>> {
     let app = app.to_string();
     let method = request.method().clone();
-    let (response, ws_client) = upgrade(request, Some(RUNTIME_CONFIG.get_websocket_config()))?;
-    let ws_server = create_ws_server(ws_uri_string).await;
 
-    if let Err(error) = ws_server {
-        info!("method='Not yet decoded' uri='{}' status_code='502' user_sub='Not yet decoded' token_id='Not yet decoded' error='Websocket: {}'", ws_uri_string, error);
-        return get_response(
-            &app,
-            &method,
-            StatusCode::BAD_GATEWAY,
-            BAD_GATEWAY,
-            start_time,
-            req_size,
-        );
-    }
+    // Open connection from Gateway to backend
+    let ws_server = match create_ws_server(&request, ws_uri_string).await {
+        Ok(server) => server,
+        Err(err) => {
+            info!("method='Not yet decoded' uri='{ws_uri_string}' status_code='502' user_sub='Not yet decoded' token_id='Not yet decoded' error='Websocket: {err}'");
+
+            return get_response(
+                &app,
+                &method,
+                StatusCode::BAD_GATEWAY,
+                BAD_GATEWAY,
+                start_time,
+                req_size,
+            );
+        }
+    };
+
+    // Upgrade connection from client to Gateway
+    let (response, ws_client) = upgrade(request, Some(RUNTIME_CONFIG.get_websocket_config()))?;
 
     commit_http_metrics(
         &app,
@@ -60,22 +65,37 @@ pub async fn handle_upgrade(
         &response.size_hint(),
     );
 
+    // If there was no error, we can run the websocket tunnel in its own background task
     spawn(async move {
-        if let Err(e) = serve_websocket(&app, ws_client, ws_server.unwrap()).await {
-            warn!("event='Error in websocket connection: {:?}'", e);
+        if let Err(err) = serve_websocket(&app, ws_client, ws_server).await {
+            warn!("event='Error in websocket connection: {err:?}'");
         }
     });
 
     Ok(response)
 }
 
-async fn create_ws_server(ws_uri_string: &str) -> Result<ServerWebSocket> {
-    let (ws_server, response) = connect_async_with_config(
-        Url::parse(ws_uri_string)?,
-        Some(RUNTIME_CONFIG.get_websocket_config()),
-        false,
-    )
-    .await?;
+async fn create_ws_server(
+    forwarded_request: &Request<impl Body>,
+    ws_uri_string: &str,
+) -> Result<ServerWebSocket> {
+    let mut request_builder = Request::builder()
+        .method(forwarded_request.method())
+        .version(forwarded_request.version())
+        .extension(forwarded_request.extensions().clone())
+        .uri(ws_uri_string);
+
+    for (key, val) in forwarded_request.headers() {
+        request_builder = request_builder.header(key, val);
+    }
+
+    let request = request_builder
+        .body(())
+        .map_err(|err| anyhow!("Failed to build forwarded request: {err:?}"))?;
+
+    let (ws_server, response) =
+        connect_async_with_config(request, Some(RUNTIME_CONFIG.get_websocket_config()), false)
+            .await?;
 
     match response.status() {
         StatusCode::SWITCHING_PROTOCOLS => Ok(ws_server),
