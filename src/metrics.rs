@@ -1,9 +1,9 @@
+use std::sync::LazyLock;
 use std::time::Instant;
 
 use http_body::SizeHint;
 use hyper::Method;
 use hyper::StatusCode;
-use once_cell::sync::Lazy;
 use prometheus::{
     exponential_buckets, opts, register_counter_vec, register_gauge_vec, register_histogram_vec,
     CounterVec, GaugeVec, HistogramVec,
@@ -116,7 +116,7 @@ fn get_metric_name(name: &str, protocol: Protocol) -> String {
     )
 }
 
-static HTTP_COUNTER: Lazy<CounterVec> = Lazy::new(|| {
+static HTTP_COUNTER: LazyLock<CounterVec> = LazyLock::new(|| {
     register_counter_vec!(
         opts!(
             get_metric_name("requests_total", Protocol::Http),
@@ -127,7 +127,7 @@ static HTTP_COUNTER: Lazy<CounterVec> = Lazy::new(|| {
     .unwrap()
 });
 
-static HTTP_REQ_LAT_HISTOGRAM: Lazy<HistogramVec> = Lazy::new(|| {
+static HTTP_REQ_LAT_HISTOGRAM: LazyLock<HistogramVec> = LazyLock::new(|| {
     register_histogram_vec!(
         get_metric_name("request_duration_seconds", Protocol::Http),
         "The HTTP request latencies in seconds.",
@@ -136,7 +136,7 @@ static HTTP_REQ_LAT_HISTOGRAM: Lazy<HistogramVec> = Lazy::new(|| {
     .unwrap()
 });
 
-static HTTP_REQ_SIZE_HISTOGRAM_LOW: Lazy<HistogramVec> = Lazy::new(|| {
+static HTTP_REQ_SIZE_HISTOGRAM_LOW: LazyLock<HistogramVec> = LazyLock::new(|| {
     register_histogram_vec!(
         get_metric_name("request_size_low_bytes", Protocol::Http),
         "The HTTP request size in bytes (lower bound).",
@@ -146,7 +146,7 @@ static HTTP_REQ_SIZE_HISTOGRAM_LOW: Lazy<HistogramVec> = Lazy::new(|| {
     .unwrap()
 });
 
-static HTTP_REQ_SIZE_HISTOGRAM_HIGH: Lazy<HistogramVec> = Lazy::new(|| {
+static HTTP_REQ_SIZE_HISTOGRAM_HIGH: LazyLock<HistogramVec> = LazyLock::new(|| {
     register_histogram_vec!(
         get_metric_name("request_size_high_bytes", Protocol::Http),
         "The HTTP request size in bytes (upper bound).",
@@ -156,7 +156,7 @@ static HTTP_REQ_SIZE_HISTOGRAM_HIGH: Lazy<HistogramVec> = Lazy::new(|| {
     .unwrap()
 });
 
-static HTTP_RES_SIZE_HISTOGRAM_LOW: Lazy<HistogramVec> = Lazy::new(|| {
+static HTTP_RES_SIZE_HISTOGRAM_LOW: LazyLock<HistogramVec> = LazyLock::new(|| {
     register_histogram_vec!(
         get_metric_name("response_size_low_bytes", Protocol::Http),
         "The HTTP response size in bytes (lower bound).",
@@ -166,7 +166,7 @@ static HTTP_RES_SIZE_HISTOGRAM_LOW: Lazy<HistogramVec> = Lazy::new(|| {
     .unwrap()
 });
 
-static HTTP_RES_SIZE_HISTOGRAM_HIGH: Lazy<HistogramVec> = Lazy::new(|| {
+static HTTP_RES_SIZE_HISTOGRAM_HIGH: LazyLock<HistogramVec> = LazyLock::new(|| {
     register_histogram_vec!(
         get_metric_name("response_size_high_bytes", Protocol::Http),
         "The HTTP response size in bytes (upper bound).",
@@ -176,7 +176,7 @@ static HTTP_RES_SIZE_HISTOGRAM_HIGH: Lazy<HistogramVec> = Lazy::new(|| {
     .unwrap()
 });
 
-static SOCKET_CONNECTED_GAUGE: Lazy<GaugeVec> = Lazy::new(|| {
+static SOCKET_CONNECTED_GAUGE: LazyLock<GaugeVec> = LazyLock::new(|| {
     register_gauge_vec!(
         get_metric_name("clients", Protocol::Socket),
         "Number simultaneously open sockets",
@@ -185,7 +185,7 @@ static SOCKET_CONNECTED_GAUGE: Lazy<GaugeVec> = Lazy::new(|| {
     .unwrap()
 });
 
-static SOCKET_MESSAGE_SENT_COUNTER: Lazy<CounterVec> = Lazy::new(|| {
+static SOCKET_MESSAGE_SENT_COUNTER: LazyLock<CounterVec> = LazyLock::new(|| {
     register_counter_vec!(
         get_metric_name("message_sent", Protocol::Socket),
         "Total number of messages sent from server through sockets",
@@ -194,7 +194,7 @@ static SOCKET_MESSAGE_SENT_COUNTER: Lazy<CounterVec> = Lazy::new(|| {
     .unwrap()
 });
 
-static SOCKET_MESSAGE_RECV_COUNTER: Lazy<CounterVec> = Lazy::new(|| {
+static SOCKET_MESSAGE_RECV_COUNTER: LazyLock<CounterVec> = LazyLock::new(|| {
     register_counter_vec!(
         get_metric_name("message_received", Protocol::Socket),
         "Total number of messages received by server through sockets",
@@ -203,7 +203,7 @@ static SOCKET_MESSAGE_RECV_COUNTER: Lazy<CounterVec> = Lazy::new(|| {
     .unwrap()
 });
 
-static SOCKET_MESSAGE_SENT_SIZE_HISTOGRAM: Lazy<HistogramVec> = Lazy::new(|| {
+static SOCKET_MESSAGE_SENT_SIZE_HISTOGRAM: LazyLock<HistogramVec> = LazyLock::new(|| {
     register_histogram_vec!(
         get_metric_name("message_sent_size", Protocol::Socket),
         "Size of messages sent from server through sockets in bytes",
@@ -213,7 +213,7 @@ static SOCKET_MESSAGE_SENT_SIZE_HISTOGRAM: Lazy<HistogramVec> = Lazy::new(|| {
     .unwrap()
 });
 
-static SOCKET_MESSAGE_RECV_SIZE_HISTOGRAM: Lazy<HistogramVec> = Lazy::new(|| {
+static SOCKET_MESSAGE_RECV_SIZE_HISTOGRAM: LazyLock<HistogramVec> = LazyLock::new(|| {
     register_histogram_vec!(
         get_metric_name("message_received_size", Protocol::Socket),
         "Size of messages received by server through sockets in bytes",

@@ -1,5 +1,5 @@
 use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 
 use anyhow::{bail, Result};
 use bytes::{Bytes, BytesMut};
@@ -7,7 +7,6 @@ use futures::TryStreamExt;
 use http_body_util::{BodyExt, Full};
 use hyper_util::client::legacy::Client;
 use hyper_util::rt::TokioExecutor;
-use once_cell::sync::Lazy;
 use regex::Regex;
 use serde::Deserialize;
 use tokio::sync::RwLock;
@@ -23,7 +22,8 @@ struct Perm {
 
 type PermList = Vec<Perm>;
 
-static IS_ROLE_PERM: Lazy<Regex> = Lazy::new(|| Regex::new("([^:]+)::roles::(.*)").unwrap());
+static IS_ROLE_PERM: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new("([^:]+)::roles::(.*)").unwrap());
 
 async fn fetch_perm(perm_uri: &PermUri) -> Option<PermList> {
     let client = Client::builder(TokioExecutor::new()).build_http::<Full<Bytes>>();
