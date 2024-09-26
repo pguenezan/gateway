@@ -25,7 +25,7 @@ fn is_websocket_default() -> bool {
 }
 
 fn check_permission_default() -> bool {
-    false
+    true
 }
 
 impl Endpoint {
