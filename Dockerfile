@@ -1,4 +1,4 @@
-FROM rust:1.68.2 as builder
+FROM rust:1.81 as builder
 WORKDIR /usr/src
 
 RUN apt-get update && \
@@ -21,4 +21,5 @@ COPY --from=builder /usr/local/cargo/bin/gateway /home/app/gateway
 WORKDIR /home/app
 USER 1000
 CMD ["/home/app/gateway", "/config/runtime_config.yaml"]
+
 

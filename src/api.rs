@@ -19,7 +19,7 @@ pub enum ApiMode {
 #[derive(CustomResource, Debug, Serialize, Deserialize, Clone, JsonSchema)]
 #[kube(
     group = "gateway.dgexsol.fr",
-    version = "v1",
+    version = "v2",
     kind = "ApiDefinition",
     namespaced
 )]
