@@ -212,6 +212,18 @@ async fn call(
         .map(into_boxed_response);
     }
 
+    {
+        let roles_read_guard = role_lock.read().await;
+
+        let roles = roles_read_guard
+            .get(&claims.token_id)
+            .and_then(|roles| roles.get(&api.spec.app_name[1..]))
+            .map(String::as_str)
+            .unwrap_or("");
+
+        inject_headers(req.headers_mut(), claims, roles, token_type);
+    }
+
     if endpoint.is_websocket && is_upgrade_request(&req) {
         return handle_upgrade(app, req, start_time, req_size, ws_uri_string)
             .await
@@ -249,16 +261,6 @@ async fn call(
         }
     };
 
-    let role_read = role_lock.read().await;
-    let roles = match role_read.get(&claims.token_id) {
-        None => "",
-        Some(roles) => match roles.get(&api.spec.app_name[1..]) {
-            None => "",
-            Some(roles) => roles,
-        },
-    };
-
-    inject_headers(req.headers_mut(), claims, roles, token_type);
     let method = req.method().clone();
 
     let request_start_time = Instant::now();
