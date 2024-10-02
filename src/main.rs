@@ -239,7 +239,13 @@ async fn call(
     inject_headers(req.headers_mut(), claims, roles, token_type);
     let method = req.method().clone();
 
-    match client.request(req).await {
+    let request_start_time = Instant::now();
+
+    let response = client.request(req).await;
+
+    let request_duration_ms = request_start_time.elapsed().as_millis();
+
+    match response {
         Ok(mut response) => {
             inject_cors(response.headers_mut());
             commit_http_metrics(
@@ -251,7 +257,7 @@ async fn call(
                 &response.size_hint(),
             );
             info!(
-                "method='{}' path='{}' uri='{}' status_code='{}' user_sub='{}' token_id='{}' perm='{}'",
+                "method='{}' path='{}' uri='{}' status_code='{}' user_sub='{}' token_id='{}' perm='{}' duration='{}ms'",
                 method,
                 path,
                 http_uri_string,
@@ -259,19 +265,21 @@ async fn call(
                 claims.sub,
                 claims.token_id,
                 &endpoint.permission,
+                request_duration_ms,
             );
             Ok(response)
         }
         Err(error) => {
             warn!(
-                "method='{}' path='{}' uri='{}' status_code='502' user_sub='{}' token_id='{}' error='{:?}' perm='{}'",
+                "method='{}' path='{}' uri='{}' status_code='502' user_sub='{}' token_id='{}' error='{:?}' perm='{}' duration='{}ms'",
                 method,
                 path,
                 http_uri_string,
                 claims.sub,
                 claims.token_id,
                 error,
-                &endpoint.permission
+                &endpoint.permission,
+                request_duration_ms,
             );
             get_response(
                 app,
