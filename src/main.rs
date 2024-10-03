@@ -94,9 +94,7 @@ fn inject_headers(
     app_user_roles: &str,
     token_type: &str,
 ) {
-    if cfg!(feature = "remove_authorization_header") {
-        headers.remove("Authorization");
-    }
+    headers.remove("Authorization");
     if let Ok(value) = claims.token_id.parse() {
         headers.insert("X-Forwarded-User", value);
     } else {
