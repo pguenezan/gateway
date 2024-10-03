@@ -176,7 +176,9 @@ async fn call(
     token_type: &str,
 ) -> Result<Response<Body>> {
     let path = &req.uri().path().to_owned();
-    if endpoint.check_permission && !has_perm(perm_lock, &endpoint.permission, &claims.token_id).await {
+    if endpoint.check_permission
+        && !has_perm(perm_lock, &endpoint.permission, &claims.token_id).await
+    {
         info!(
             "method='{}' path='{}' uri='{}' status_code='403' user_sub='{}' token_id='{}' error='Does not have the permission' perm='{}'",
             req.method(),
