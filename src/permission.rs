@@ -7,7 +7,7 @@ use bytes::Buf as _;
 
 use regex::Regex;
 
-use hyper::Client;
+use hyper::{Client, Request};
 
 use tokio::sync::RwLock;
 use tokio::time::{sleep, Duration};
@@ -28,7 +28,21 @@ type PermList = Vec<Perm>;
 
 async fn fetch_perm(perm_uri: &PermUri) -> Option<PermList> {
     let client = Client::new();
-    let res = match client.get(perm_uri.uri.clone()).await {
+
+    let request = Request::builder()
+        .uri(perm_uri.uri.clone())
+        .method("GET")
+        .header("X-Forwarded-User", "admin")
+        .header("X-Forwarded-User-Username", "admin")
+        .header("X-Forwarded-User-First-Name", "admin")
+        .header("X-Forwarded-User-Last-Name", "admin")
+        .header("X-Forwarded-User-Roles", "")
+        .header("X-Forwarded-User-Email", "")
+        .header("X-Forwarded-User-Type", "admin@dgexsol.fr")
+        .body(hyper::Body::empty())
+        .unwrap();
+
+    let res = match client.request(request).await {
         Ok(res) => res,
         Err(e) => {
             error!("fail to fetch {:?}: {}", perm_uri, e);
