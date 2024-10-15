@@ -11,9 +11,9 @@ COPY src ./src
 RUN cargo install --path .
 
 
-FROM debian:bullseye-20230502-slim
+FROM debian:bookworm-20240926-slim
 RUN apt-get -y update && \
-    apt-get -y install libssl-dev && \
+    apt-get -y install libssl3 && \
     apt-get clean autoclean && \
     apt-get autoremove --yes && \
     rm -rf /var/lib/{apt,dpkg,cache,log}/
