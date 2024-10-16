@@ -11,7 +11,7 @@ COPY src ./src
 RUN cargo install --path .
 
 
-FROM debian:bullseye-20230502-slim
+FROM debian:12-slim@sha256:ad86386827b083b3d71139050b47ffb32bbd9559ea9b1345a739b14fec2d9ecf
 RUN apt-get -y update && \
     apt-get -y install libssl-dev && \
     apt-get clean autoclean && \
@@ -21,5 +21,3 @@ COPY --from=builder /usr/local/cargo/bin/gateway /home/app/gateway
 WORKDIR /home/app
 USER 1000
 CMD ["/home/app/gateway", "/config/runtime_config.yaml"]
-
-

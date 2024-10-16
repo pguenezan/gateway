@@ -4,9 +4,9 @@ use std::fs::File;
 use std::io::BufReader;
 use std::path::Path;
 use std::process::exit;
+use std::sync::LazyLock;
 
 use hyper::http::Uri;
-use once_cell::sync::Lazy;
 use serde::Deserialize;
 use tokio_tungstenite::tungstenite::protocol::WebSocketConfig;
 
@@ -27,7 +27,8 @@ pub struct AuthSource {
 
 #[derive(Debug, Deserialize)]
 struct WebSocketConfigInternal {
-    max_send_queue: usize,
+    write_buffer_size: usize,
+    max_write_buffer_size: usize,
     max_message_size: usize,
     max_frame_size: usize,
     accept_unmasked_frames: bool,
@@ -47,7 +48,7 @@ pub struct RuntimeConfig {
 
 type Result<T> = std::result::Result<T, Box<dyn error::Error>>;
 
-pub static RUNTIME_CONFIG: Lazy<RuntimeConfig> = Lazy::new(|| {
+pub static RUNTIME_CONFIG: LazyLock<RuntimeConfig> = LazyLock::new(|| {
     let args: Vec<String> = env::args().collect();
 
     if args.len() != 2 {
@@ -79,10 +80,12 @@ fn get_runtime_config<P: AsRef<Path>>(path: P) -> Result<RuntimeConfig> {
 impl RuntimeConfig {
     pub fn get_websocket_config(&self) -> WebSocketConfig {
         WebSocketConfig {
-            max_send_queue: Some(self.websocket_config.max_send_queue),
+            write_buffer_size: self.websocket_config.write_buffer_size,
+            max_write_buffer_size: self.websocket_config.max_write_buffer_size,
             max_message_size: Some(self.websocket_config.max_message_size),
             max_frame_size: Some(self.websocket_config.max_frame_size),
             accept_unmasked_frames: self.websocket_config.accept_unmasked_frames,
+            ..Default::default()
         }
     }
 }

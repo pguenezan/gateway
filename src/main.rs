@@ -1,22 +1,29 @@
 use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
 use std::process::exit;
+use std::sync::Arc;
 use std::time::Instant;
 
-use anyhow::anyhow;
+use anyhow::{anyhow, Result};
+use bytes::Bytes;
 use http_body::SizeHint;
-use hyper::body::HttpBody;
-use hyper::client::HttpConnector;
+use http_body_util::combinators::BoxBody;
+use http_body_util::{BodyExt, Full};
+use hyper::body::{Body, Incoming};
 use hyper::header::{
     HeaderValue, ACCESS_CONTROL_ALLOW_CREDENTIALS, ACCESS_CONTROL_ALLOW_HEADERS,
     ACCESS_CONTROL_ALLOW_METHODS, ACCESS_CONTROL_ALLOW_ORIGIN, ACCESS_CONTROL_MAX_AGE,
     AUTHORIZATION, CONTENT_TYPE,
 };
-use hyper::service::{make_service_fn, service_fn};
-use hyper::{Body, Client, HeaderMap, Method, Request, Response, Server, StatusCode, Uri};
+use hyper::server::conn::http1;
+use hyper::service::service_fn;
+use hyper::{HeaderMap, Method, Request, Response, StatusCode, Uri};
 use hyper_tungstenite::is_upgrade_request;
+use hyper_util::client::legacy::connect::HttpConnector;
+use hyper_util::client::legacy::Client;
+use hyper_util::rt::{TokioExecutor, TokioIo};
 use prometheus::{Encoder, TextEncoder};
-use std::sync::Arc;
+use tokio::net::TcpListener;
 use tokio::sync::RwLock;
 use url::Url;
 
@@ -43,14 +50,21 @@ use crate::websocket::handle_upgrade;
 #[macro_use]
 extern crate log;
 
-type GenericError = Box<dyn std::error::Error + Send + Sync>;
-type Result<T> = std::result::Result<T, GenericError>;
+type BoxResponse<D> = Response<BoxBody<D, anyhow::Error>>;
 
 static OK: &[u8] = b"Ok";
 static NOT_FOUND: &[u8] = b"Not Found";
 static FORBIDDEN: &[u8] = b"Forbidden";
 static BAD_GATEWAY: &[u8] = b"Bad Gateway";
 static NO_CONTENT: &[u8] = b"";
+
+fn into_boxed_response<B>(response: Response<B>) -> BoxResponse<B::Data>
+where
+    B: Body + Send + Sync + 'static,
+    B::Error: std::error::Error + Send + Sync,
+{
+    response.map(|body| body.map_err(|err| anyhow!("Invalid Body: {err}")).boxed())
+}
 
 #[inline(always)]
 fn get_response(
@@ -60,8 +74,8 @@ fn get_response(
     content: &'static [u8],
     start_time: &Instant,
     req_size: &SizeHint,
-) -> Result<Response<Body>> {
-    let response = Response::builder()
+) -> Result<Response<Full<Bytes>>> {
+    let response: Response<Full<Bytes>> = Response::builder()
         .status(status_code)
         .header(ACCESS_CONTROL_ALLOW_ORIGIN, "*")
         .header(ACCESS_CONTROL_ALLOW_HEADERS, "*")
@@ -76,11 +90,10 @@ fn get_response(
         start_time,
         status_code,
         req_size,
-        &response.size_hint(),
+        &response.body().size_hint(),
     );
 
     debug!("event='Response built'");
-
     Ok(response)
 }
 
@@ -94,9 +107,7 @@ fn inject_headers(
     app_user_roles: &str,
     token_type: &str,
 ) {
-    if cfg!(feature = "remove_authorization_header") {
-        headers.remove("Authorization");
-    }
+    headers.remove("Authorization");
     if let Ok(value) = claims.token_id.parse() {
         headers.insert("X-Forwarded-User", value);
     } else {
@@ -134,7 +145,7 @@ fn inject_headers(
     }
 }
 
-async fn metrics() -> Result<Response<Body>> {
+async fn metrics() -> Result<Response<Full<Bytes>>> {
     let encoder = TextEncoder::new();
     let metric_families = prometheus::gather();
     let mut buffer = vec![];
@@ -143,13 +154,13 @@ async fn metrics() -> Result<Response<Body>> {
     let response = Response::builder()
         .status(200)
         .header(CONTENT_TYPE, encoder.format_type())
-        .body(Body::from(buffer))
+        .body(buffer.into())
         .unwrap();
 
     Ok(response)
 }
 
-async fn health() -> Result<Response<Body>> {
+async fn health() -> Result<Response<Full<Bytes>>> {
     Ok(Response::builder()
         .status(StatusCode::OK)
         .header(ACCESS_CONTROL_ALLOW_ORIGIN, "*")
@@ -161,8 +172,8 @@ async fn health() -> Result<Response<Body>> {
 
 #[allow(clippy::too_many_arguments)]
 async fn call(
-    mut req: Request<Body>,
-    client: &Client<HttpConnector>,
+    mut req: Request<Incoming>,
+    client: &Client<HttpConnector, Incoming>,
     perm_lock: Arc<RwLock<HashMap<String, HashSet<String>>>>,
     role_lock: Arc<RwLock<HashMap<String, HashMap<String, String>>>>,
     endpoint: &Endpoint,
@@ -174,9 +185,12 @@ async fn call(
     http_uri_string: &str,
     ws_uri_string: &str,
     token_type: &str,
-) -> Result<Response<Body>> {
+) -> Result<BoxResponse<Bytes>> {
     let path = &req.uri().path().to_owned();
-    if endpoint.check_permission && !has_perm(perm_lock, &endpoint.permission, &claims.token_id).await {
+
+    if endpoint.check_permission
+        && !has_perm(perm_lock, &endpoint.permission, &claims.token_id).await
+    {
         info!(
             "method='{}' path='{}' uri='{}' status_code='403' user_sub='{}' token_id='{}' error='Does not have the permission' perm='{}'",
             req.method(),
@@ -186,6 +200,7 @@ async fn call(
             claims.token_id,
             &endpoint.permission,
         );
+
         return get_response(
             app,
             req.method(),
@@ -193,11 +208,26 @@ async fn call(
             FORBIDDEN,
             start_time,
             req_size,
-        );
+        )
+        .map(into_boxed_response);
+    }
+
+    {
+        let roles_read_guard = role_lock.read().await;
+
+        let roles = roles_read_guard
+            .get(&claims.token_id)
+            .and_then(|roles| roles.get(&api.spec.app_name[1..]))
+            .map(String::as_str)
+            .unwrap_or("");
+
+        inject_headers(req.headers_mut(), claims, roles, token_type);
     }
 
     if endpoint.is_websocket && is_upgrade_request(&req) {
-        return handle_upgrade(app, req, start_time, req_size, ws_uri_string).await;
+        return handle_upgrade(app, req, start_time, req_size, ws_uri_string)
+            .await
+            .map(into_boxed_response);
     }
 
     if endpoint.is_websocket {
@@ -210,13 +240,15 @@ async fn call(
             NO_CONTENT,
             start_time,
             req_size,
-        );
+        )
+        .map(into_boxed_response);
     }
 
     match http_uri_string.parse() {
         Ok(uri) => *req.uri_mut() = uri,
         Err(e) => {
             error!("error='Uri parsing error: {:?}'", e);
+
             return get_response(
                 app,
                 req.method(),
@@ -224,24 +256,23 @@ async fn call(
                 NOT_FOUND,
                 start_time,
                 req_size,
-            );
+            )
+            .map(into_boxed_response);
         }
     };
-    let role_read = role_lock.read().await;
-    let roles = match role_read.get(&claims.token_id) {
-        None => "",
-        Some(roles) => match roles.get(&api.spec.app_name[1..]) {
-            None => "",
-            Some(roles) => roles,
-        },
-    };
 
-    inject_headers(req.headers_mut(), claims, roles, token_type);
     let method = req.method().clone();
 
-    match client.request(req).await {
+    let request_start_time = Instant::now();
+
+    let response = client.request(req).await;
+
+    let request_duration_ms = request_start_time.elapsed().as_millis();
+
+    match response {
         Ok(mut response) => {
             inject_cors(response.headers_mut());
+
             commit_http_metrics(
                 app,
                 &method,
@@ -250,8 +281,9 @@ async fn call(
                 req_size,
                 &response.size_hint(),
             );
+
             info!(
-                "method='{}' path='{}' uri='{}' status_code='{}' user_sub='{}' token_id='{}' perm='{}'",
+                "method='{}' path='{}' uri='{}' status_code='{}' user_sub='{}' token_id='{}' perm='{}' duration='{}ms'",
                 method,
                 path,
                 http_uri_string,
@@ -259,20 +291,24 @@ async fn call(
                 claims.sub,
                 claims.token_id,
                 &endpoint.permission,
+                request_duration_ms,
             );
-            Ok(response)
+
+            Ok(into_boxed_response(response))
         }
         Err(error) => {
             warn!(
-                "method='{}' path='{}' uri='{}' status_code='502' user_sub='{}' token_id='{}' error='{:?}' perm='{}'",
+                "method='{}' path='{}' uri='{}' status_code='502' user_sub='{}' token_id='{}' error='{:?}' perm='{}' duration='{}ms'",
                 method,
                 path,
                 http_uri_string,
                 claims.sub,
                 claims.token_id,
                 error,
-                &endpoint.permission
+                &endpoint.permission,
+                request_duration_ms,
             );
+
             get_response(
                 app,
                 &method,
@@ -281,6 +317,7 @@ async fn call(
                 start_time,
                 req_size,
             )
+            .map(into_boxed_response)
         }
     }
 }
@@ -298,20 +335,20 @@ fn get_auth_from_url(uri: &Uri) -> Option<String> {
 }
 
 async fn response(
-    req: Request<Body>,
-    client: Client<HttpConnector>,
+    req: Request<Incoming>,
+    client: Client<HttpConnector, Incoming>,
     perm_lock: Arc<RwLock<HashMap<String, HashSet<String>>>>,
     role_lock: Arc<RwLock<HashMap<String, HashMap<String, String>>>>,
     api_lock: Arc<RwLock<HashMap<String, (ApiDefinition, Node)>>>,
-) -> Result<Response<Body>> {
+) -> Result<BoxResponse<Bytes>> {
     match req.uri().path() {
         "/metrics" => {
             debug!("event='Metrics endpoint'");
-            return metrics().await;
+            return metrics().await.map(into_boxed_response);
         }
         "/health" => {
             debug!("event='Health endpoint'");
-            return health().await;
+            return health().await.map(into_boxed_response);
         }
         _ => (),
     };
@@ -332,7 +369,8 @@ async fn response(
             NO_CONTENT,
             &start_time,
             &req_size,
-        );
+        )
+        .map(into_boxed_response);
     }
 
     let slash_index = match path[1..].find('/') {
@@ -346,7 +384,8 @@ async fn response(
                 NOT_FOUND,
                 &start_time,
                 &req_size,
-            );
+            )
+            .map(into_boxed_response);
         }
     };
     let app = &path[..slash_index];
@@ -362,7 +401,8 @@ async fn response(
                     FORBIDDEN,
                     &start_time,
                     &req_size,
-                );
+                )
+                .map(into_boxed_response);
             }
             Some(authorization) => authorization,
         },
@@ -376,7 +416,8 @@ async fn response(
                     FORBIDDEN,
                     &start_time,
                     &req_size,
-                );
+                )
+                .map(into_boxed_response);
             }
             Ok(authorization) => authorization.to_string(),
         },
@@ -392,7 +433,8 @@ async fn response(
                 FORBIDDEN,
                 &start_time,
                 &req_size,
-            );
+            )
+            .map(into_boxed_response);
         }
     };
 
@@ -407,7 +449,8 @@ async fn response(
                 NOT_FOUND,
                 &start_time,
                 &req_size,
-            );
+            )
+            .map(into_boxed_response);
         }
     };
 
@@ -424,6 +467,7 @@ async fn response(
                 &start_time,
                 &req_size,
             )
+            .map(into_boxed_response)
         }
         Some((api, node)) => match api.spec.mode {
             ApiMode::ForwardAll => {
@@ -463,6 +507,7 @@ async fn response(
                             &start_time,
                             &req_size,
                         )
+                        .map(into_boxed_response)
                     }
                     Some(endpoint) => {
                         let http_uri_string = format!("{}{}", &api.spec.uri_http, forwarded_uri);
@@ -513,34 +558,56 @@ async fn main() -> Result<()> {
     let update_api = update_api(api_lock.clone(), RUNTIME_CONFIG.crd_label.to_owned());
 
     // Share a `Client` with all `Service`s
-    let client = Client::new();
+    let client = Client::builder(TokioExecutor::new()).build_http();
 
-    let make_service = make_service_fn(move |_| {
-        // Move a clone of `client`, `perm_lock` and `role_lock` into the `make_service`.
-        let client = client.clone();
-        let perm_lock = perm_lock.clone();
-        let role_lock = role_lock.clone();
-        let api_lock = api_lock.clone();
-        async {
-            Ok::<_, GenericError>(service_fn(move |req| {
-                // Clone again to ensure that `client`, `perm_lock` and `role_lock` outlives this closure.
-                response(
-                    req,
-                    client.to_owned(),
-                    perm_lock.clone(),
-                    role_lock.clone(),
-                    api_lock.clone(),
-                )
-            }))
-        }
+    let service = service_fn(move |req| {
+        response(
+            req,
+            client.to_owned(),
+            perm_lock.clone(),
+            role_lock.clone(),
+            api_lock.clone(),
+        )
     });
 
-    let server = Server::bind(&addr).serve(make_service);
+    let listener = TcpListener::bind(&addr)
+        .await
+        .map_err(|err| anyhow!("Could not listen on {addr}: {err}"))?;
+
     info!("event='Listening on http://{}'", addr);
 
     let res = tokio::try_join!(update_perm, update_api, async {
-        server.await.map_err(|e| anyhow!(e))
+        loop {
+            let stream = match listener.accept().await {
+                Ok((stream, _socket)) => stream,
+                Err(err) => {
+                    error!("Failed to accept connection: {err:?}");
+                    continue;
+                }
+            };
+
+            let io = TokioIo::new(stream);
+            let service = service.clone();
+
+            tokio::task::spawn(async move {
+                if let Err(err) = http1::Builder::new()
+                    .preserve_header_case(true)
+                    .title_case_headers(true)
+                    .serve_connection(io, service)
+                    .with_upgrades()
+                    .await
+                {
+                    error!("Failed to serve connection: {err:?}");
+                }
+            });
+        }
+
+        // This part is unreachable but we still define a return value to help
+        // type inference of the async block.
+        #[allow(unreachable_code)]
+        Result::Ok(())
     });
+
     match res {
         Ok((_, _, _)) => info!("That went well"),
         Err(e) => {
