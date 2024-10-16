@@ -1,20 +1,18 @@
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::RwLock;
 
-use kube::api::{Api, DynamicObject};
-use kube::{discovery, Client};
-
+use anyhow::{bail, Result};
 use futures::{StreamExt, TryStreamExt};
+use kube::api::{Api, DynamicObject};
+use kube::core::GroupVersionKind;
+use kube::{discovery, Client};
 use kube_runtime::utils::WatchStreamExt;
 use kube_runtime::watcher;
 use kube_runtime::watcher::Config;
-
-use anyhow::{bail, Result};
+use tokio::sync::RwLock;
 
 use crate::api::ApiDefinition;
 use crate::route::Node;
-use kube::core::GroupVersionKind;
 
 pub async fn update_api(
     api_lock: Arc<RwLock<HashMap<String, (ApiDefinition, Node)>>>,

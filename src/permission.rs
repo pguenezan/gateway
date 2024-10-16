@@ -1,22 +1,18 @@
 use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 
-use serde::Deserialize;
-
-use bytes::Buf as _;
-
+use anyhow::{bail, Result};
+use bytes::{Bytes, BytesMut};
+use futures::TryStreamExt;
+use http_body_util::{BodyExt, Full};
+use hyper_util::client::legacy::Client;
+use hyper_util::rt::TokioExecutor;
 use regex::Regex;
-
-use hyper::Client;
-
+use serde::Deserialize;
 use tokio::sync::RwLock;
 use tokio::time::{sleep, Duration};
 
-use anyhow::bail;
-
 use crate::runtime_config::{PermUri, RUNTIME_CONFIG};
-
-use anyhow::Result;
 
 #[derive(Deserialize, Debug)]
 struct Perm {
@@ -26,29 +22,28 @@ struct Perm {
 
 type PermList = Vec<Perm>;
 
+static IS_ROLE_PERM: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new("([^:]+)::roles::(.*)").unwrap());
+
 async fn fetch_perm(perm_uri: &PermUri) -> Option<PermList> {
-    let client = Client::new();
-    let res = match client.get(perm_uri.uri.clone()).await {
-        Ok(res) => res,
-        Err(e) => {
-            error!("fail to fetch {:?}: {}", perm_uri, e);
-            return None;
-        }
-    };
-    let body = match hyper::body::aggregate(res).await {
-        Ok(body) => body,
-        Err(e) => {
-            error!("fail to fetch {:?}: {}", perm_uri, e);
-            return None;
-        }
-    };
-    match serde_json::from_reader(body.reader()) {
-        Ok(json) => json,
-        Err(e) => {
-            error!("fail to fetch {:?}: {}", perm_uri, e);
-            None
-        }
-    }
+    let client = Client::builder(TokioExecutor::new()).build_http::<Full<Bytes>>();
+
+    let res = client
+        .get(perm_uri.uri.clone())
+        .await
+        .inspect_err(|e| error!("fail to fetch {perm_uri:?}: {e}"))
+        .ok()?;
+
+    let body: BytesMut = res
+        .into_data_stream()
+        .try_collect()
+        .await
+        .inspect_err(|e| error!("fail to fetch {perm_uri:?}: {e}"))
+        .ok()?;
+
+    serde_json::from_slice(&body)
+        .inspect_err(|e| error!("fail to fetch {perm_uri:?}: {e}"))
+        .ok()
 }
 
 pub async fn get_perm() -> Result<(
@@ -56,15 +51,13 @@ pub async fn get_perm() -> Result<(
     HashMap<String, HashMap<String, String>>,
 )> {
     let mut perm_hm: HashMap<String, HashSet<String>> = HashMap::new();
-    let is_role_perm = Regex::new("([^:]+)::roles::(.*)").unwrap();
     let mut user_role = HashMap::new();
 
     for perm_uri in RUNTIME_CONFIG.perm_uris.iter().as_ref() {
         match fetch_perm(perm_uri).await {
             Some(perm_vec) => {
                 for perm in perm_vec.iter() {
-                    if is_role_perm.is_match(&perm.role_name) {
-                        let captures = is_role_perm.captures(&perm.role_name).unwrap();
+                    if let Some(captures) = IS_ROLE_PERM.captures(&perm.role_name) {
                         let app_name = captures.get(1).unwrap().as_str();
                         let role_name = captures.get(2).unwrap().as_str();
                         for user_id in perm.user_id.iter() {

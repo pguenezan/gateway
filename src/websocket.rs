@@ -1,39 +1,39 @@
 use std::time::Instant;
 
-use http_body::{Body as _, SizeHint};
-use hyper::{Body, Request, Response, StatusCode};
-use url::Url;
-
-use hyper_tungstenite::{upgrade, HyperWebsocket};
-
+use anyhow::{bail, Result};
+use bytes::Bytes;
 use futures::stream::{SplitSink, SplitStream};
 use futures::{pin_mut, SinkExt, StreamExt};
+use http_body::SizeHint;
+use http_body_util::Full;
+use hyper::body::Body;
 use hyper::upgrade::Upgraded;
+use hyper::{Request, Response, StatusCode};
+use hyper_tungstenite::{upgrade, HyperWebsocket};
+use hyper_util::rt::TokioIo;
 use tokio::net::TcpStream;
 use tokio::{spawn, try_join};
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::MaybeTlsStream;
 use tokio_tungstenite::{connect_async_with_config, WebSocketStream};
+use url::Url;
 
 use crate::metrics::{commit_http_metrics, SocketMetricsGuard};
 use crate::{get_response, BAD_GATEWAY, RUNTIME_CONFIG};
 
-type GenericError = Box<dyn std::error::Error + Send + Sync>;
-type Result<T> = std::result::Result<T, GenericError>;
 type ServerWebSocket = WebSocketStream<MaybeTlsStream<TcpStream>>;
-
 type TxServerSink = SplitSink<ServerWebSocket, Message>;
-type TxClientSink = SplitSink<WebSocketStream<Upgraded>, Message>;
+type TxClientSink = SplitSink<WebSocketStream<TokioIo<Upgraded>>, Message>;
 type RxServerStream = SplitStream<ServerWebSocket>;
-type RxClientStream = SplitStream<WebSocketStream<Upgraded>>;
+type RxClientStream = SplitStream<WebSocketStream<TokioIo<Upgraded>>>;
 
 pub async fn handle_upgrade(
     app: &str,
-    request: Request<Body>,
+    request: Request<impl Body>,
     start_time: &Instant,
     req_size: &SizeHint,
     ws_uri_string: &str,
-) -> Result<Response<Body>> {
+) -> Result<Response<Full<Bytes>>> {
     let app = app.to_string();
     let method = request.method().clone();
     let (response, ws_client) = upgrade(request, Some(RUNTIME_CONFIG.get_websocket_config()))?;
@@ -73,14 +73,16 @@ async fn create_ws_server(ws_uri_string: &str) -> Result<ServerWebSocket> {
     let (ws_server, response) = connect_async_with_config(
         Url::parse(ws_uri_string)?,
         Some(RUNTIME_CONFIG.get_websocket_config()),
+        false,
     )
     .await?;
+
     match response.status() {
         StatusCode::SWITCHING_PROTOCOLS => Ok(ws_server),
-        status => Err(status
-            .canonical_reason()
-            .unwrap_or_else(|| status.as_str())
-            .into()),
+        status => bail!(
+            "Unexpected status during socket initialization: {}",
+            status.canonical_reason().unwrap_or_else(|| status.as_str()),
+        ),
     }
 }
 

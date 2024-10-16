@@ -1,7 +1,7 @@
 use std::collections::HashSet;
+use std::sync::LazyLock;
 
 use jsonwebtoken::{decode, Algorithm, DecodingKey, Validation};
-use once_cell::sync::Lazy;
 use serde::Deserialize;
 
 use crate::runtime_config::{AuthSource, RUNTIME_CONFIG};
@@ -52,7 +52,7 @@ impl TokenSource {
     }
 }
 
-static TOKEN_SOURCES: Lazy<Vec<TokenSource>> = Lazy::new(|| {
+static TOKEN_SOURCES: LazyLock<Vec<TokenSource>> = LazyLock::new(|| {
     RUNTIME_CONFIG
         .auth_sources
         .iter()
