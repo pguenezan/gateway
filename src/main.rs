@@ -12,8 +12,8 @@ use http_body_util::{BodyExt, Full};
 use hyper::body::{Body, Incoming};
 use hyper::header::{
     HeaderValue, ACCESS_CONTROL_ALLOW_CREDENTIALS, ACCESS_CONTROL_ALLOW_HEADERS,
-    ACCESS_CONTROL_ALLOW_METHODS, ACCESS_CONTROL_ALLOW_ORIGIN, ACCESS_CONTROL_MAX_AGE,
-    AUTHORIZATION, CONTENT_TYPE,
+    ACCESS_CONTROL_ALLOW_METHODS, ACCESS_CONTROL_ALLOW_ORIGIN, ACCESS_CONTROL_EXPOSE_HEADERS,
+    ACCESS_CONTROL_MAX_AGE, AUTHORIZATION, CONTENT_TYPE,
 };
 use hyper::server::conn::http1;
 use hyper::service::service_fn;
@@ -80,6 +80,7 @@ fn get_response(
         .header(ACCESS_CONTROL_ALLOW_ORIGIN, "*")
         .header(ACCESS_CONTROL_ALLOW_HEADERS, "*")
         .header(ACCESS_CONTROL_ALLOW_METHODS, "*")
+        .header(ACCESS_CONTROL_EXPOSE_HEADERS, "Location, Retry-After")
         .header(ACCESS_CONTROL_ALLOW_CREDENTIALS, "true")
         .header(ACCESS_CONTROL_MAX_AGE, 86400)
         .body(content.into())?;
