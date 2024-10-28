@@ -44,6 +44,7 @@ pub struct RuntimeConfig {
     pub auth_sources: Vec<AuthSource>,
     pub max_fetch_error_count: u64,
     websocket_config: WebSocketConfigInternal,
+    pub crds_namespaces: Option<Vec<String>>,
 }
 
 type Result<T> = std::result::Result<T, Box<dyn error::Error>>;

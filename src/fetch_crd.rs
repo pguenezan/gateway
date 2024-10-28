@@ -5,7 +5,7 @@ use anyhow::{bail, Result};
 use futures::{StreamExt, TryStreamExt};
 use kube::api::{Api, DynamicObject};
 use kube::core::GroupVersionKind;
-use kube::{discovery, Client};
+use kube::{discovery, Client, Resource};
 use kube_runtime::utils::WatchStreamExt;
 use kube_runtime::watcher;
 use kube_runtime::watcher::Config;
@@ -14,9 +14,21 @@ use tokio::sync::RwLock;
 use crate::api::ApiDefinition;
 use crate::route::Node;
 
+fn apidefinition_selected(api_definition: &ApiDefinition, crds_namespace: &Option<Vec<String>>) -> bool {
+    if let None = crds_namespace {
+        return true
+    }
+    let crds_namespace = crds_namespace.clone().unwrap();
+    crds_namespace.into_iter().any(|ns| match api_definition.meta().namespace.clone() {
+        None => false,
+        Some(api_def_ns) => api_def_ns == ns,
+    })
+}
+
 pub async fn update_api(
     api_lock: Arc<RwLock<HashMap<String, (ApiDefinition, Node)>>>,
     label_filter: String,
+    crds_namespace: Option<Vec<String>>,
 ) -> Result<()> {
     let client = match Client::try_default().await {
         Ok(client) => client,
@@ -65,23 +77,25 @@ pub async fn update_api(
                         error!("event='{}'", err_msg);
                     }
                     Ok(_) => {
-                        let node = Node::new(&apidefinition);
-                        let mut api_write = api_lock.write().await;
-                        let mut built_apidefinition = apidefinition.clone();
-                        built_apidefinition.build_uri();
-                        api_write.insert(
-                            built_apidefinition.spec.app_name.clone(),
-                            (built_apidefinition, node),
-                        );
-                        info!(
-                            "event='{} api updated from {:?}'",
-                            &apidefinition.spec.app_name,
-                            &apidefinition
+                        if apidefinition_selected(&apidefinition, &crds_namespace) {
+                            let node = Node::new(&apidefinition);
+                            let mut api_write = api_lock.write().await;
+                            let mut built_apidefinition = apidefinition.clone();
+                            built_apidefinition.build_uri();
+                            api_write.insert(
+                                built_apidefinition.spec.app_name.clone(),
+                                (built_apidefinition, node),
+                            );
+                            info!(
+                                "event='{} api updated from {:?}'",
+                                &apidefinition.spec.app_name,
+                                &apidefinition
                                 .metadata
                                 .name
                                 .as_ref()
                                 .unwrap_or(&"NO_NAME_DEFINED".to_owned())
-                        );
+                            );
+                        };
                     }
                 },
             },
