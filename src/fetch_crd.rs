@@ -14,15 +14,20 @@ use tokio::sync::RwLock;
 use crate::api::ApiDefinition;
 use crate::route::Node;
 
-fn apidefinition_selected(api_definition: &ApiDefinition, crds_namespace: &Option<Vec<String>>) -> bool {
-    if let None = crds_namespace {
-        return true
+fn apidefinition_selected(
+    api_definition: &ApiDefinition,
+    crds_namespace: &Option<Vec<String>>,
+) -> bool {
+    if crds_namespace.is_none() {
+        return true;
     }
     let crds_namespace = crds_namespace.clone().unwrap();
-    crds_namespace.into_iter().any(|ns| match api_definition.meta().namespace.clone() {
-        None => false,
-        Some(api_def_ns) => api_def_ns == ns,
-    })
+    crds_namespace
+        .into_iter()
+        .any(|ns| match api_definition.meta().namespace.clone() {
+            None => false,
+            Some(api_def_ns) => api_def_ns == ns,
+        })
 }
 
 pub async fn update_api(
@@ -90,10 +95,10 @@ pub async fn update_api(
                                 "event='{} api updated from {:?}'",
                                 &apidefinition.spec.app_name,
                                 &apidefinition
-                                .metadata
-                                .name
-                                .as_ref()
-                                .unwrap_or(&"NO_NAME_DEFINED".to_owned())
+                                    .metadata
+                                    .name
+                                    .as_ref()
+                                    .unwrap_or(&"NO_NAME_DEFINED".to_owned())
                             );
                         };
                     }

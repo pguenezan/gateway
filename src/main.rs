@@ -554,7 +554,11 @@ async fn main() -> Result<()> {
 
     // apidefinitions fetching
     let api_lock = Arc::new(RwLock::new(HashMap::new()));
-    let update_api = update_api(api_lock.clone(), RUNTIME_CONFIG.crd_label.to_owned(), RUNTIME_CONFIG.crds_namespaces.to_owned());
+    let update_api = update_api(
+        api_lock.clone(),
+        RUNTIME_CONFIG.crd_label.to_owned(),
+        RUNTIME_CONFIG.crds_namespaces.to_owned(),
+    );
 
     // Share a `Client` with all `Service`s
     let client = Client::builder(TokioExecutor::new()).build_http();
