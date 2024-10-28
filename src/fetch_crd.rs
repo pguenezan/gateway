@@ -1,11 +1,12 @@
 use std::collections::HashMap;
+use std::pin::Pin;
 use std::sync::Arc;
 
 use anyhow::{bail, Result};
-use futures::{StreamExt, TryStreamExt};
-use kube::api::{Api, DynamicObject};
+use futures::{Stream, StreamExt, TryStreamExt};
+use kube::api::{Api, ApiResource, DynamicObject};
 use kube::core::GroupVersionKind;
-use kube::{discovery, Client, Resource};
+use kube::{discovery, Client};
 use kube_runtime::utils::WatchStreamExt;
 use kube_runtime::watcher;
 use kube_runtime::watcher::Config;
@@ -14,20 +15,86 @@ use tokio::sync::RwLock;
 use crate::api::ApiDefinition;
 use crate::route::Node;
 
-fn apidefinition_selected(
-    api_definition: &ApiDefinition,
-    crds_namespace: &Option<Vec<String>>,
-) -> bool {
-    if crds_namespace.is_none() {
-        return true;
+async fn read_crds(
+    mut stream: Pin<Box<dyn Stream<Item = Result<DynamicObject, watcher::Error>> + Send>>,
+    api_lock: Arc<RwLock<HashMap<String, (ApiDefinition, Node)>>>,
+) -> Result<()> {
+    loop {
+        match stream.try_next().await {
+            Err(e) => {
+                let err_msg = format!("Crd stream: {:?}", e);
+                error!("event='{}'", err_msg);
+                bail!(err_msg);
+            }
+            Ok(None) => {
+                info!("event='No apidefinition found'");
+            }
+            Ok(Some(ref apidefinition)) => match ApiDefinition::try_from(apidefinition) {
+                Err(e) => {
+                    let err_msg = format!(
+                        "event='An error occurs during apidefinition parsing: {}'",
+                        e
+                    );
+                    error!("event='{}'", err_msg);
+                }
+                Ok(apidefinition) => match apidefinition.check_fields() {
+                    Err(e) => {
+                        let err_msg = format!("Invalid apidefinition: {}", e);
+                        error!("event='{}'", err_msg);
+                    }
+                    Ok(_) => {
+                        let node = Node::new(&apidefinition);
+                        let mut api_write = api_lock.write().await;
+                        let mut built_apidefinition = apidefinition.clone();
+                        built_apidefinition.build_uri();
+                        api_write.insert(
+                            built_apidefinition.spec.app_name.clone(),
+                            (built_apidefinition, node),
+                        );
+                        info!(
+                            "event='{} api updated from {:?}'",
+                            &apidefinition.spec.app_name,
+                            &apidefinition
+                                .metadata
+                                .name
+                                .as_ref()
+                                .unwrap_or(&"NO_NAME_DEFINED".to_owned())
+                        );
+                    }
+                },
+            },
+        };
     }
-    let crds_namespace = crds_namespace.clone().unwrap();
-    crds_namespace
-        .into_iter()
-        .any(|ns| match api_definition.meta().namespace.clone() {
-            None => false,
-            Some(api_def_ns) => api_def_ns == ns,
-        })
+}
+
+async fn update_api_namespaced(
+    api_lock: Arc<RwLock<HashMap<String, (ApiDefinition, Node)>>>,
+    namespaces: Vec<String>,
+    api_resource: ApiResource,
+    client: Client,
+    watcher_config: watcher::Config,
+) -> Result<()> {
+    for ns in namespaces {
+        let apidefinitions =
+            Api::<DynamicObject>::namespaced_with(client.clone(), ns.as_str(), &api_resource);
+        let watcher = watcher(apidefinitions, watcher_config.clone());
+        let apply_apidefinitions = watcher.applied_objects().boxed();
+        read_crds(apply_apidefinitions, api_lock.clone()).await?;
+    }
+
+    Ok(())
+}
+
+async fn update_api_cluster(
+    api_lock: Arc<RwLock<HashMap<String, (ApiDefinition, Node)>>>,
+    api_resource: ApiResource,
+    client: Client,
+    watcher_config: watcher::Config,
+) -> Result<()> {
+    let apidefinitions = Api::<DynamicObject>::all_with(client.clone(), &api_resource);
+    let watcher = watcher(apidefinitions, watcher_config.clone());
+    let apply_apidefinitions = watcher.applied_objects().boxed();
+    read_crds(apply_apidefinitions, api_lock.clone()).await
 }
 
 pub async fn update_api(
@@ -51,59 +118,10 @@ pub async fn update_api(
     // Use API discovery to identify more information about the type (like its plural)
     let (ar, _caps) = discovery::pinned_kind(&client, &gvk).await?;
 
-    // Use the discovered kind in an Api with the ApiResource as its DynamicType
-    let apidefinitions = Api::<DynamicObject>::all_with(client, &ar);
     let lp = Config::default().labels(&label_filter);
-    let watcher = watcher(apidefinitions, lp);
 
-    let mut apply_apidefinitions = watcher.applied_objects().boxed();
-
-    loop {
-        match apply_apidefinitions.try_next().await {
-            Err(e) => {
-                let err_msg = format!("Crd stream: {:?}", e);
-                error!("event='{}'", err_msg);
-                bail!(err_msg);
-            }
-            Ok(None) => {
-                info!("event='No apidefinition found'");
-            }
-            Ok(Some(ref apidefinition)) => match ApiDefinition::try_from(apidefinition) {
-                Err(e) => {
-                    let err_msg = format!(
-                        "event='An error occurs during apidefinition parsing: {}'",
-                        e
-                    );
-                    error!("event='{}'", err_msg);
-                }
-                Ok(apidefinition) => match apidefinition.check_fields() {
-                    Err(e) => {
-                        let err_msg = format!("Invalid apidefinition: {}", e);
-                        error!("event='{}'", err_msg);
-                    }
-                    Ok(_) => {
-                        if apidefinition_selected(&apidefinition, &crds_namespace) {
-                            let node = Node::new(&apidefinition);
-                            let mut api_write = api_lock.write().await;
-                            let mut built_apidefinition = apidefinition.clone();
-                            built_apidefinition.build_uri();
-                            api_write.insert(
-                                built_apidefinition.spec.app_name.clone(),
-                                (built_apidefinition, node),
-                            );
-                            info!(
-                                "event='{} api updated from {:?}'",
-                                &apidefinition.spec.app_name,
-                                &apidefinition
-                                    .metadata
-                                    .name
-                                    .as_ref()
-                                    .unwrap_or(&"NO_NAME_DEFINED".to_owned())
-                            );
-                        };
-                    }
-                },
-            },
-        };
+    match crds_namespace {
+        Some(namespaces) => update_api_namespaced(api_lock, namespaces, ar, client, lp).await,
+        None => update_api_cluster(api_lock, ar, client, lp).await,
     }
 }
