@@ -73,7 +73,19 @@ pub static RUNTIME_CONFIG: LazyLock<RuntimeConfig> = LazyLock::new(|| {
 fn get_runtime_config<P: AsRef<Path>>(path: P) -> Result<RuntimeConfig> {
     let file = File::open(path)?;
     let reader = BufReader::new(file);
-    let runtime_config = serde_yaml::from_reader(reader)?;
+    let mut runtime_config: RuntimeConfig = serde_yaml::from_reader(reader)?;
+
+    if runtime_config.websocket_config.max_write_buffer_size
+        <= runtime_config.websocket_config.write_buffer_size
+    {
+        runtime_config.websocket_config.max_write_buffer_size = usize::MAX;
+
+        log::error!(concat!(
+            "Invalid configuration value for `max_write_buffer_size` which should be at least ",
+            "`write_buffer_size` + 1. Its value is ignored.",
+        ))
+    }
+
     Ok(runtime_config)
 }
 
