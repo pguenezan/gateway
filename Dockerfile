@@ -1,4 +1,4 @@
-FROM rust:1.81 as builder
+FROM rust:1.82-slim as builder
 WORKDIR /usr/src
 
 RUN apt-get update && \
@@ -11,7 +11,7 @@ COPY src ./src
 RUN cargo install --path .
 
 
-FROM debian:12-slim@sha256:ad86386827b083b3d71139050b47ffb32bbd9559ea9b1345a739b14fec2d9ecf
+FROM debian:12-slim@sha256:36e591f228bb9b99348f584e83f16e012c33ba5cad44ef5981a1d7c0a93eca22
 RUN apt-get -y update && \
     apt-get -y install libssl3 && \
     apt-get clean autoclean && \
