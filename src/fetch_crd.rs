@@ -3,7 +3,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 
 use anyhow::{bail, Result};
-use futures::{Stream, StreamExt, TryStreamExt};
+use futures::{future, Stream, StreamExt, TryStreamExt};
 use kube::api::{Api, ApiResource, DynamicObject};
 use kube::core::GroupVersionKind;
 use kube::{discovery, Client};
@@ -74,13 +74,14 @@ async fn update_api_namespaced(
     client: Client,
     watcher_config: watcher::Config,
 ) -> Result<()> {
-    for ns in namespaces {
+    future::try_join_all(namespaces.iter().map(|ns| {
         let apidefinitions =
             Api::<DynamicObject>::namespaced_with(client.clone(), ns.as_str(), &api_resource);
         let watcher = watcher(apidefinitions, watcher_config.clone());
         let apply_apidefinitions = watcher.applied_objects().boxed();
-        read_crds(apply_apidefinitions, api_lock.clone()).await?;
-    }
+        tokio::spawn(read_crds(apply_apidefinitions, api_lock.clone()))
+    }))
+    .await?;
 
     Ok(())
 }
