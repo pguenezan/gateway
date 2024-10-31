@@ -20,7 +20,9 @@ max_fetch_error_count: u64 # max number of consecutive errors when fetching perm
 # TODO: arbitrary values
 websocket_config:
   write_buffer_size: 10_000
-  max_write_buffer_size: 10_000
+  # This must at least be write_buffer_size + 1.
+  # See https://docs.rs/tungstenite/0.24.0/tungstenite/protocol/struct.WebSocketConfig.html#structfield.max_write_buffer_size
+  max_write_buffer_size: 1_000_000
   max_message_size: 1_000_000
   max_frame_size: 1_000_000
   accept_unmasked_frames: true
