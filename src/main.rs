@@ -80,7 +80,7 @@ fn get_response(
         .header(ACCESS_CONTROL_ALLOW_ORIGIN, "*")
         .header(ACCESS_CONTROL_ALLOW_HEADERS, "*")
         .header(ACCESS_CONTROL_ALLOW_METHODS, "*")
-        .header(ACCESS_CONTROL_EXPOSE_HEADERS, "Location, Retry-After")
+        .header(ACCESS_CONTROL_EXPOSE_HEADERS, "location, retry-after")
         .header(ACCESS_CONTROL_ALLOW_CREDENTIALS, "true")
         .header(ACCESS_CONTROL_MAX_AGE, 86400)
         .body(content.into())?;
