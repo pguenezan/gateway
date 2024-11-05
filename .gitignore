@@ -1,2 +1,3 @@
 /target
 gateway/src/*.pem
+shell.nix
