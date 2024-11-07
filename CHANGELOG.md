@@ -1,3 +1,8 @@
+# 2.2.1
+
+- Fix `Sec-WebSocket-Extensions` header being forwarded while the gateway does
+  not support any extension protocol.
+
 # 2.2.0
 
 - Forward method and headers for websocket requests.

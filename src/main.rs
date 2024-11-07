@@ -52,11 +52,20 @@ extern crate log;
 
 type BoxResponse<D> = Response<BoxBody<D, anyhow::Error>>;
 
-static OK: &[u8] = b"Ok";
-static NOT_FOUND: &[u8] = b"Not Found";
-static FORBIDDEN: &[u8] = b"Forbidden";
-static BAD_GATEWAY: &[u8] = b"Bad Gateway";
-static NO_CONTENT: &[u8] = b"";
+const OK: &[u8] = b"Ok";
+const NOT_FOUND: &[u8] = b"Not Found";
+const FORBIDDEN: &[u8] = b"Forbidden";
+const BAD_GATEWAY: &[u8] = b"Bad Gateway";
+const NO_CONTENT: &[u8] = b"";
+
+/// A list of headers that will NOT be forwarded to the server.
+const REMOVED_HEADERS: [&str; 2] = [
+    "Authorization",
+    // No websocket extensions are supported by thungstenite, but this might be
+    // added in the future for `permessage-deflate`:
+    // https://github.com/snapview/tungstenite-rs/pull/426
+    "Sec-WebSocket-Extensions",
+];
 
 fn into_boxed_response<B>(response: Response<B>) -> BoxResponse<B::Data>
 where
@@ -108,7 +117,9 @@ fn inject_headers(
     app_user_roles: &str,
     token_type: &str,
 ) {
-    headers.remove("Authorization");
+    for header in REMOVED_HEADERS {
+        headers.remove(header);
+    }
     if let Ok(value) = claims.token_id.parse() {
         headers.insert("X-Forwarded-User", value);
     } else {
