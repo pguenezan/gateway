@@ -153,6 +153,7 @@ async fn serve_websocket(
                     warn!("event='Fail to close server socket: {:?}'", e);
                 }
             }
+
             while let Some(message) = rx_server.next().await {
                 match message {
                     Err(e) => {
