@@ -109,6 +109,7 @@ fn get_response(
 
 fn inject_cors(headers: &mut HeaderMap<HeaderValue>) {
     headers.insert(ACCESS_CONTROL_ALLOW_ORIGIN, "*".parse().unwrap());
+    headers.insert(ACCESS_CONTROL_EXPOSE_HEADERS, "location, retry-after".parse().unwrap());
 }
 
 fn inject_headers(
