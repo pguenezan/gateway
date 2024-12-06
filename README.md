@@ -26,6 +26,11 @@ websocket_config:
   max_message_size: 1_000_000
   max_frame_size: 1_000_000
   accept_unmasked_frames: true
+
+# Optional config to fetch on namespaces `test` and `test2` only.
+# crds_namespaces:
+#  - test
+#  - test2
 ```
 
 ## Optional features
